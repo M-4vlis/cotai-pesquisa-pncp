@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Pesquisa de preços no PNCP com dados mantidos no seu navegador." />
+    <title>CotAí · Pesquisa PNCP</title>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <p class="eyebrow">PESQUISA DE PREÇOS · PNCP</p>
+        <h1>Preço público, com evidência.</h1>
+        <p class="lead">Importe os itens, defina quantos comparáveis deseja e organize a pesquisa no seu próprio navegador.</p>
+        <div class="privacy"><span>●</span> Nenhuma planilha é enviada para este site.</div>
+      </section>
+
+      <section class="panel import-panel">
+        <div class="section-heading"><div><p class="step">01</p><h2>Itens da pesquisa</h2></div><button class="text-button" id="sampleButton">Usar exemplo</button></div>
+        <label class="dropzone" for="fileInput"><input id="fileInput" type="file" accept=".csv,.xlsx,.xls" />
+          <strong>Selecione uma planilha CSV ou XLSX</strong><span>Colunas: descrição, unidade e quantidade</span>
+        </label>
+        <div id="itemSummary" class="empty">Nenhum item importado ainda.</div>
+        <div class="table-wrap hidden" id="itemsWrap"><table><thead><tr><th>Descrição</th><th>Unidade</th><th>Qtd.</th></tr></thead><tbody id="itemsBody"></tbody></table></div>
+      </section>
+
+      <section class="panel settings">
+        <div class="section-heading"><div><p class="step">02</p><h2>Critérios</h2></div></div>
+        <div class="form-grid">
+          <label>Resultados por item<select id="resultCount"><option value="3">3 resultados</option><option value="5" selected>5 resultados</option><option value="10">10 resultados</option></select></label>
+          <label>Similaridade mínima<select id="minScore"><option value="65">65%</option><option value="75" selected>75%</option><option value="85">85%</option></select></label>
+          <label>Data inicial<input id="startDate" type="date" /></label>
+          <label>Data final<input id="endDate" type="date" /></label>
+        </div>
+        <details><summary>Conexão PNCP</summary><p>O endereço abaixo pode apontar para um proxy leve, caso o acesso direto ao PNCP seja limitado pelo navegador. Deixe em branco para testar o acesso público direto.</p><label>URL do proxy (opcional)<input id="proxyUrl" type="url" placeholder="https://seu-dominio.gov.br/api/pncp" /></label></details>
+      </section>
+
+      <section class="action-row"><button id="searchButton" class="primary">Pesquisar preços</button><button id="clearButton" class="secondary">Limpar dados locais</button></section>
+      <p id="status" class="status" aria-live="polite"></p>
+
+      <section id="resultsSection" class="results hidden">
+        <div class="section-heading"><div><p class="step">03</p><h2>Resultados comparáveis</h2></div><button class="text-button" id="exportButton">Exportar CSV</button></div>
+        <div id="resultsList"></div>
+      </section>
+    </main>
+    <template id="resultTemplate"><article class="result-card"><div class="result-top"><div><span class="score"></span><h3></h3><p class="source-description"></p></div><strong class="price"></strong></div><dl><div><dt>Unidade</dt><dd class="unit"></dd></div><div><dt>Órgão</dt><dd class="agency"></dd></div><div><dt>Data</dt><dd class="date"></dd></div><div><dt>Tipo</dt><dd class="price-type"></dd></div></dl><a class="evidence" target="_blank" rel="noopener">Ver no PNCP ↗</a></article></template>
+    <script src="app.js"></script>
+  </body>
+</html>
