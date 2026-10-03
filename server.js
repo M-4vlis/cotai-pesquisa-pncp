@@ -15,15 +15,19 @@ function json(body, status = 200) {
 }
 
 const aliases = {
-  a4: ['210', '297'], sulfite: ['papel', 'impressao'], resma: ['papel'],
+  a4: ['210', '297', 'sulfite', 'branco'], sulfite: ['papel', 'impressao'], resma: ['papel'],
   esferografica: ['caneta'], notebook: ['computador', 'microcomputador'], laptop: ['computador', 'microcomputador'],
   pne: ['acessibilidade'], sanitaria: ['hidraulica'], sanitario: ['hidraulica'],
 };
 const stopTokens = new Set(['com', 'para', 'das', 'dos', 'uma', 'uns', 'por', 'sem', 'tipo', 'modelo', 'unidade', 'unidades', 'uso', 'nome', 'referencia', 'de', 'da', 'do', 'e']);
 const lowValueTokens = new Set(['acabamento', 'completo', 'superior', 'inferior', 'cromado', 'cromada', 'material', 'aplicacao', 'caracteristicas', 'adicionais', 'bitola', 'polegada', 'polegadas', 'acionamento']);
+const unrequestedConstraints = new Set(['colorido', 'rosa', 'vermelho', 'verde', 'amarelo', 'preto', 'branco', 'offset', 'couche', 'personalizado', 'couro', 'revestimento', 'gravacao', 'silk', 'grip', 'automatico', 'eletrico', 'sensor', 'mictorio']);
 
 function baseTokens(value = '') {
-  return String(value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').split(/\s+/)
+  const prepared = String(value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/(\d+)\s*[.,\s]\s*(\d+)\s*\/\s*(\d+)/g, '$1_$2_$3')
+    .replace(/(\d+)\s*\/\s*(\d+)/g, '$1_$2');
+  return prepared.replace(/[^a-z0-9_ ]/g, ' ').split(/\s+/)
     .filter((token) => token.length > 1 && !stopTokens.has(token));
 }
 
@@ -53,6 +57,12 @@ function headMatches(query, candidate) {
   const head = baseTokens(query)[0];
   if (!head) return false;
   return tokenMatches(head, new Set(normalize(candidate)));
+}
+
+function constraintPenalty(query, candidate) {
+  const source = new Set(normalize(query));
+  const target = new Set(normalize(candidate));
+  return [...unrequestedConstraints].reduce((penalty, token) => penalty + (target.has(token) && !source.has(token) ? 7 : 0), 0);
 }
 
 async function fetchJson(url, { timeout = 12000, retries = 1, ttl = 0 } = {}) {
@@ -115,7 +125,7 @@ function preferredPdms(query) {
   const preferred = [];
   if (tokens.has('canopla')) preferred.push(4429);
   if (has('botao', 'descarga')) preferred.push(3828);
-  if (has('acabamento', 'valvula')) preferred.push(16221);
+  if (has('acabamento', 'valvula') || has('acabamento', 'descarga')) preferred.push(16221);
   if (has('valvula', 'descarga')) preferred.push(16403);
   if (tokens.has('papel') && (tokens.has('a4') || has('210', '297'))) preferred.push(19746);
   if (has('caneta', 'esferografica')) preferred.push(99);
@@ -149,7 +159,7 @@ async function searchCatmat(query, limit) {
   return itemPages.flatMap(({ pdm, page }) => (page.resultado || []).map((item) => ({ item, pdm }))).map(({ item, pdm }) => {
     const description = `${item.nomePdm || ''} ${item.descricaoItem || ''}`;
     const lexical = similarity(query, description);
-    const score = Math.round((lexical * 0.8) + (pdm._score * 0.2));
+    const score = Math.max(0, Math.round((lexical * 0.8) + (pdm._score * 0.2) - constraintPenalty(query, description)));
     return {
       codigoItem: item.codigoItem,
       descricaoItem: item.descricaoItem || item.nomePdm,
