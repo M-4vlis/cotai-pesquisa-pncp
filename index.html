@@ -3,7 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Pesquisa de preços no PNCP com dados mantidos no seu navegador." />
+    <meta name="description" content="Pesquisa de preços públicos com classificação CATMAT e consulta ao PNCP." />
+    <meta property="og:title" content="CotAí · Pesquisa de preços no PNCP" />
+    <meta property="og:description" content="Importe sua planilha, identifique o CATMAT e encontre preços públicos com evidências." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://cotai-pesquisa-pncp-20261003.mravlis.chatgpt.site/" />
+    <meta property="og:image" content="https://cotai-pesquisa-pncp-20261003.mravlis.chatgpt.site/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
     <title>CotAí · Pesquisa PNCP</title>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
     <link rel="stylesheet" href="styles.css" />
@@ -13,39 +19,72 @@
       <section class="hero">
         <p class="eyebrow">PESQUISA DE PREÇOS · PNCP</p>
         <h1>Preço público, com evidência.</h1>
-        <p class="lead">Importe os itens, defina quantos comparáveis deseja e organize a pesquisa no seu próprio navegador.</p>
-        <div class="privacy"><span>●</span> Nenhuma planilha é enviada para este site.</div>
+        <p class="lead">Importe seus itens. A ferramenta identifica os CATMAT mais próximos e pesquisa preços públicos automaticamente.</p>
+        <div class="privacy"><span>●</span> Sua planilha e seu histórico permanecem neste navegador.</div>
       </section>
 
       <section class="panel import-panel">
-        <div class="section-heading"><div><p class="step">01</p><h2>Itens da pesquisa</h2></div><button class="text-button" id="sampleButton">Usar exemplo</button></div>
-        <label class="dropzone" for="fileInput"><input id="fileInput" type="file" accept=".csv,.xlsx,.xls" />
-          <strong>Selecione uma planilha CSV ou XLSX</strong><span>Colunas: descrição, unidade e quantidade</span>
+        <div class="section-heading">
+          <div><p class="step">01</p><h2>Itens da pesquisa</h2></div>
+          <button class="text-button" id="sampleButton">Usar exemplo</button>
+        </div>
+        <label class="dropzone" for="fileInput">
+          <input id="fileInput" type="file" accept=".csv,.xlsx,.xls" />
+          <strong>Selecione uma planilha CSV ou XLSX</strong>
+          <span>Colunas necessárias: descrição, unidade e quantidade</span>
         </label>
         <div id="itemSummary" class="empty">Nenhum item importado ainda.</div>
-        <div class="table-wrap hidden" id="itemsWrap"><table><thead><tr><th>Descrição</th><th>Unidade</th><th>Qtd.</th></tr></thead><tbody id="itemsBody"></tbody></table></div>
+        <div class="table-wrap hidden" id="itemsWrap">
+          <table>
+            <thead><tr><th>Descrição</th><th>Unidade</th><th>Qtd.</th><th>CATMAT identificado</th></tr></thead>
+            <tbody id="itemsBody"></tbody>
+          </table>
+        </div>
       </section>
 
       <section class="panel settings">
         <div class="section-heading"><div><p class="step">02</p><h2>Critérios</h2></div></div>
-        <div class="form-grid">
-          <label>Resultados por item<select id="resultCount"><option value="3">3 resultados</option><option value="5" selected>5 resultados</option><option value="10">10 resultados</option></select></label>
-          <label>Similaridade mínima<select id="minScore"><option value="65">65%</option><option value="75" selected>75%</option><option value="85">85%</option></select></label>
+        <div class="form-grid three-columns">
+          <label>Resultados por item
+            <select id="resultCount"><option value="3">3 resultados</option><option value="5" selected>5 resultados</option><option value="10">10 resultados</option></select>
+          </label>
+          <label>Similaridade mínima
+            <select id="minScore"><option value="50">50%</option><option value="65" selected>65%</option><option value="75">75%</option><option value="85">85%</option></select>
+          </label>
+          <label>Período da pesquisa
+            <select id="periodPreset"><option value="3">Últimos 3 meses</option><option value="6" selected>Últimos 6 meses</option><option value="12">Último ano</option><option value="custom">Personalizado</option></select>
+          </label>
+        </div>
+        <div id="customPeriod" class="form-grid custom-period hidden">
           <label>Data inicial<input id="startDate" type="date" /></label>
           <label>Data final<input id="endDate" type="date" /></label>
         </div>
-        <details><summary>Conexão PNCP</summary><p>O endereço abaixo pode apontar para um proxy leve, caso o acesso direto ao PNCP seja limitado pelo navegador. Deixe em branco para testar o acesso público direto.</p><label>URL do proxy (opcional)<input id="proxyUrl" type="url" placeholder="https://seu-dominio.gov.br/api/pncp" /></label></details>
+        <p class="helper">A classificação CATMAT acontece antes da pesquisa e será exibida junto de cada item.</p>
       </section>
 
-      <section class="action-row"><button id="searchButton" class="primary">Pesquisar preços</button><button id="clearButton" class="secondary">Limpar dados locais</button></section>
+      <section class="action-row">
+        <button id="searchButton" class="primary">Identificar CATMAT e pesquisar preços</button>
+        <button id="clearButton" class="secondary">Limpar dados locais</button>
+      </section>
+      <div id="progressWrap" class="progress-wrap hidden" aria-hidden="true"><div id="progressBar"></div></div>
       <p id="status" class="status" aria-live="polite"></p>
 
       <section id="resultsSection" class="results hidden">
-        <div class="section-heading"><div><p class="step">03</p><h2>Resultados comparáveis</h2></div><button class="text-button" id="exportButton">Exportar CSV</button></div>
+        <div class="section-heading">
+          <div><p class="step">03</p><h2>Resultados comparáveis</h2></div>
+          <button class="text-button" id="exportButton">Exportar CSV</button>
+        </div>
         <div id="resultsList"></div>
       </section>
     </main>
-    <template id="resultTemplate"><article class="result-card"><div class="result-top"><div><span class="score"></span><h3></h3><p class="source-description"></p></div><strong class="price"></strong></div><dl><div><dt>Unidade</dt><dd class="unit"></dd></div><div><dt>Órgão</dt><dd class="agency"></dd></div><div><dt>Data</dt><dd class="date"></dd></div><div><dt>Tipo</dt><dd class="price-type"></dd></div></dl><a class="evidence" target="_blank" rel="noopener">Ver no PNCP ↗</a></article></template>
+
+    <template id="resultTemplate">
+      <article class="result-card">
+        <div class="result-top"><div><span class="score"></span><h3></h3><p class="source-description"></p></div><strong class="price"></strong></div>
+        <dl><div><dt>Unidade</dt><dd class="unit"></dd></div><div><dt>Órgão</dt><dd class="agency"></dd></div><div><dt>Data</dt><dd class="date"></dd></div><div><dt>Tipo</dt><dd class="price-type"></dd></div></dl>
+        <a class="evidence" target="_blank" rel="noopener">Confirmar na fonte oficial ↗</a>
+      </article>
+    </template>
     <script src="app.js"></script>
   </body>
 </html>
