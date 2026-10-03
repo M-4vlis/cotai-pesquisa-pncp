@@ -13,6 +13,7 @@
     <title>CotAí · Pesquisa PNCP</title>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
     <link rel="stylesheet" href="styles.css" />
+    <style>dl{grid-template-columns:repeat(5,1fr)}@media(max-width:700px){dl{grid-template-columns:1fr}}</style>
   </head>
   <body>
     <main>
@@ -81,8 +82,8 @@
     <template id="resultTemplate">
       <article class="result-card">
         <div class="result-top"><div><span class="score"></span><h3></h3><p class="source-description"></p></div><strong class="price"></strong></div>
-        <dl><div><dt>Unidade</dt><dd class="unit"></dd></div><div><dt>Órgão</dt><dd class="agency"></dd></div><div><dt>Data</dt><dd class="date"></dd></div><div><dt>Tipo</dt><dd class="price-type"></dd></div></dl>
-        <a class="evidence" target="_blank" rel="noopener">Confirmar na fonte oficial ↗</a>
+        <dl><div><dt>Item no PNCP</dt><dd class="pncp-item"></dd></div><div><dt>Unidade</dt><dd class="unit"></dd></div><div><dt>Órgão</dt><dd class="agency"></dd></div><div><dt>Data</dt><dd class="date"></dd></div><div><dt>Tipo</dt><dd class="price-type"></dd></div></dl>
+        <a class="evidence" target="_blank" rel="noopener">Abrir compra no PNCP ↗</a>
       </article>
     </template>
     <script src="app.js"></script>

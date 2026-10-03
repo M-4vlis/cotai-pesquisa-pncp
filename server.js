@@ -211,6 +211,29 @@ async function fetchItemResults(item) {
   }
 }
 
+async function pncpReference(item) {
+  const params = new URLSearchParams({
+    tipo: 'idCompra',
+    codigo: String(item.idCompra),
+    idCompraItem: String(item.idCompraItem),
+  });
+  const payload = await fetchJson(
+    `${comprasBase}/modulo-contratacoes/2.1_consultarItensContratacoes_PNCP_14133_Id?${params}`,
+    { timeout: 15000, retries: 2, ttl: 3600000 },
+  );
+  const records = payload.resultado || [];
+  const record = records.find((entry) => String(entry.idCompraItem) === String(item.idCompraItem)) || records[0];
+  if (!record) return null;
+  const control = String(record.numeroControlePNCPCompra || record.idContratacaoPNCP || '');
+  const match = control.match(/^([a-z0-9]{14})-1-(\d+)\/(\d{4})$/i);
+  if (!match) return null;
+  return {
+    numeroItemPncp: Number(record.numeroItemPncp || item.numeroItemCompra),
+    numeroControlePncp: control,
+    link: `${pncpBase}/app/editais/${match[1]}/${match[3]}/${Number(match[2])}`,
+  };
+}
+
 async function searchPrices({ query, catmat, catmatDescription, start, end, limit, minScore }) {
   const params = new URLSearchParams({
     pagina: '1', tamanhoPagina: '100', tipo: 'codigoItemCatalogo', codigo: catmat,
@@ -218,14 +241,11 @@ async function searchPrices({ query, catmat, catmatDescription, start, end, limi
   });
   const sourceUrl = `${comprasBase}/modulo-pesquisa-preco/1_consultarMaterial?${params}`;
   const payload = await fetchJson(sourceUrl, { timeout: 18000, retries: 2, ttl: 900000 });
-  return (payload.resultado || []).map((item) => {
+  const ranked = (payload.resultado || []).map((item) => {
     const description = item.descricaoDetalhadaItem || item.descricaoItem || catmatDescription;
     const textScore = similarity(`${query} ${catmatDescription}`, description);
-    const evidence = new URLSearchParams({
-      pagina: '1', tamanhoPagina: '10', tipo: 'codigoItemCatalogo', codigo: catmat,
-      idCompra: String(item.idCompra), dataResultado: 'true', dataCompraInicio: start, dataCompraFim: end,
-    });
     return {
+      _source: item,
       descricao: description,
       valor: Number(item.precoUnitario),
       unidade: item.nomeUnidadeFornecimento || item.siglaUnidadeFornecimento || item.nomeUnidadeMedida || item.siglaUnidadeMedida || '',
@@ -234,10 +254,22 @@ async function searchPrices({ query, catmat, catmatDescription, start, end, limi
       data: item.dataResultado || item.dataCompra || '',
       tipo: 'Preço praticado',
       score: Math.min(100, Math.max(90, textScore)),
-      link: `${comprasBase}/modulo-pesquisa-preco/1_consultarMaterial?${evidence}`,
     };
   }).filter((item) => item.valor > 0 && item.score >= minScore)
-    .sort((a, b) => b.score - a.score || a.valor - b.valor).slice(0, limit);
+    .sort((a, b) => b.score - a.score || a.valor - b.valor)
+    .slice(0, Math.max(limit * 4, 20));
+
+  const enriched = await Promise.all(ranked.map(async (item) => {
+    try {
+      const reference = await pncpReference(item._source);
+      if (!reference) return null;
+      const { _source, ...result } = item;
+      return { ...result, ...reference };
+    } catch {
+      return null;
+    }
+  }));
+  return enriched.filter(Boolean).slice(0, limit);
 }
 
 export default {

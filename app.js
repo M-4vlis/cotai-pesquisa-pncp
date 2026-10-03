@@ -24,6 +24,8 @@ async function load() {
   const request = database.transaction(storeName, 'readonly').objectStore(storeName).get('current');
   request.onsuccess = () => {
     if (request.result) state = { items: [], results: [], settings: {}, ...request.result };
+    const hasOldEvidence = state.results.some((group) => group.found?.some((result) => !String(result.link || '').startsWith('https://pncp.gov.br/app/editais/')));
+    if (hasOldEvidence) state.results = [];
     fields.forEach((id) => { if (state.settings?.[id] !== undefined) $(id).value = state.settings[id]; });
     toggleCustomPeriod();
     renderItems();
@@ -215,6 +217,7 @@ function renderResults() {
       node.querySelector('h3').textContent = result.descricao;
       node.querySelector('.source-description').textContent = result.fornecedor ? `Fornecedor: ${result.fornecedor}` : 'Registro público localizado';
       node.querySelector('.price').textContent = money(result.valor);
+      node.querySelector('.pncp-item').textContent = result.numeroItemPncp ? `Item ${result.numeroItemPncp}` : '—';
       node.querySelector('.unit').textContent = result.unidade || '—';
       node.querySelector('.agency').textContent = result.orgao || '—';
       node.querySelector('.date').textContent = result.data ? new Date(`${result.data.slice(0, 10)}T12:00:00`).toLocaleDateString('pt-BR') : '—';
@@ -244,10 +247,10 @@ function sample() {
 }
 
 function csv() {
-  const rows = [['Item pesquisado', 'CATMAT', 'Descrição CATMAT', 'Descrição encontrada', 'Similaridade', 'Preço', 'Unidade', 'Órgão', 'Data', 'Tipo', 'Link']];
+  const rows = [['Item pesquisado', 'CATMAT', 'Descrição CATMAT', 'Descrição encontrada', 'Similaridade', 'Preço', 'Item no PNCP', 'ID da contratação PNCP', 'Unidade', 'Órgão', 'Data', 'Tipo', 'Link PNCP']];
   state.results.forEach((group) => group.found.forEach((result) => rows.push([
     group.item.descricao, group.catmat?.codigoItem, group.catmat?.descricaoItem, result.descricao, `${result.score}%`, result.valor,
-    result.unidade, result.orgao, result.data, result.tipo, result.link,
+    result.numeroItemPncp, result.numeroControlePncp, result.unidade, result.orgao, result.data, result.tipo, result.link,
   ])));
   const content = rows.map((row) => row.map((value) => `"${String(value ?? '').replaceAll('"', '""')}"`).join(';')).join('\n');
   const blob = new Blob([`\ufeff${content}`], { type: 'text/csv;charset=utf-8' });
