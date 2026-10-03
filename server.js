@@ -14,15 +14,25 @@ function json(body, status = 200) {
   });
 }
 
+const aliases = {
+  a4: ['210', '297'], sulfite: ['papel', 'impressao'], resma: ['papel'],
+  esferografica: ['caneta'], notebook: ['computador', 'microcomputador'], laptop: ['computador', 'microcomputador'],
+  pne: ['acessibilidade'], sanitaria: ['hidraulica'], sanitario: ['hidraulica'],
+};
+const stopTokens = new Set(['com', 'para', 'das', 'dos', 'uma', 'uns', 'por', 'sem', 'tipo', 'modelo', 'unidade', 'unidades', 'uso', 'nome', 'referencia', 'de', 'da', 'do', 'e']);
+const lowValueTokens = new Set(['acabamento', 'completo', 'superior', 'inferior', 'cromado', 'cromada', 'material', 'aplicacao', 'caracteristicas', 'adicionais', 'bitola', 'polegada', 'polegadas', 'acionamento']);
+
+function baseTokens(value = '') {
+  return String(value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').split(/\s+/)
+    .filter((token) => token.length > 1 && !stopTokens.has(token));
+}
+
 function normalize(value = '') {
-  const aliases = {
-    a4: ['210', '297', 'copia'], sulfite: ['papel', 'copia'], resma: ['papel'],
-    esferografica: ['caneta'], notebook: ['computador', 'microcomputador'], laptop: ['computador', 'microcomputador'],
-    cadeira: ['mobiliario'], mesa: ['mobiliario'], armario: ['mobiliario'],
-  };
-  const stop = new Set(['com', 'para', 'das', 'dos', 'uma', 'uns', 'por', 'sem', 'tipo', 'modelo', 'unidade', 'unidades']);
-  const base = String(value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((token) => token.length > 1 && !stop.has(token));
-  return [...new Set(base.flatMap((token) => [token, ...(aliases[token] || [])]))];
+  return [...new Set(baseTokens(value).flatMap((token) => [token, ...(aliases[token] || [])]))];
+}
+
+function tokenMatches(token, targets) {
+  return targets.has(token) || [...targets].some((value) => token.length > 4 && value.length > 4 && (value.startsWith(token) || token.startsWith(value)));
 }
 
 function similarity(query, candidate) {
@@ -32,11 +42,17 @@ function similarity(query, candidate) {
   let matched = 0;
   let weight = 0;
   source.forEach((token) => {
-    const tokenWeight = /\d/.test(token) ? 1.4 : 1;
+    const tokenWeight = lowValueTokens.has(token) ? 0.35 : (/\d/.test(token) ? 1.25 : 1);
     weight += tokenWeight;
-    if (target.has(token) || [...target].some((value) => value.length > 4 && (value.startsWith(token) || token.startsWith(value)))) matched += tokenWeight;
+    if (tokenMatches(token, target)) matched += tokenWeight;
   });
   return Math.min(100, Math.round((matched / weight) * 100));
+}
+
+function headMatches(query, candidate) {
+  const head = baseTokens(query)[0];
+  if (!head) return false;
+  return tokenMatches(head, new Set(normalize(candidate)));
 }
 
 async function fetchJson(url, { timeout = 12000, retries = 1, ttl = 0 } = {}) {
@@ -84,8 +100,26 @@ function hintedGroups(query) {
     85: ['higiene', 'sabonete', 'papel higienico', 'creme dental'],
     65: ['medicamento', 'hospitalar', 'seringa', 'agulha', 'luva cirurgica'],
   };
-  const text = normalize(query).join(' ');
-  return Object.entries(map).filter(([, words]) => words.some((word) => text.includes(word))).map(([code]) => Number(code));
+  const tokens = new Set(normalize(query));
+  const text = [...tokens].join(' ');
+  const groups = Object.entries(map).filter(([, words]) => words.some((word) => text.includes(word))).map(([code]) => Number(code));
+  const plumbing = ['descarga', 'canopla', 'vaso', 'sanitario', 'torneira', 'chuveiro', 'acoplada', 'hidraulica'];
+  if (plumbing.some((token) => tokens.has(token))) groups.push(45);
+  if (tokens.has('valvula') && !tokens.has('descarga') && !tokens.has('canopla') && !tokens.has('acoplada')) groups.push(48);
+  return [...new Set(groups)];
+}
+
+function preferredPdms(query) {
+  const tokens = new Set(normalize(query));
+  const has = (...values) => values.every((value) => tokens.has(value));
+  const preferred = [];
+  if (tokens.has('canopla')) preferred.push(4429);
+  if (has('botao', 'descarga')) preferred.push(3828);
+  if (has('acabamento', 'valvula')) preferred.push(16221);
+  if (has('valvula', 'descarga')) preferred.push(16403);
+  if (tokens.has('papel') && (tokens.has('a4') || has('210', '297'))) preferred.push(19746);
+  if (has('caneta', 'esferografica')) preferred.push(99);
+  return preferred;
 }
 
 async function searchCatmat(query, limit) {
@@ -93,36 +127,42 @@ async function searchCatmat(query, limit) {
   const groups = hintedGroups(query);
   const eligible = groups.length ? classes.filter((item) => groups.includes(Number(item.codigoGrupo))) : classes;
   const rankedClasses = eligible.map((item) => ({ ...item, _score: similarity(query, `${item.nomeGrupo} ${item.nomeClasse}`) }))
-    .sort((a, b) => b._score - a._score).slice(0, groups.length ? 6 : 4);
+    .sort((a, b) => b._score - a._score).slice(0, groups.length ? 8 : 5);
+  if (!groups.length && (!rankedClasses.length || rankedClasses[0]._score < 20)) return [];
 
   const pdmPages = await Promise.all(rankedClasses.map((item) => fetchJson(
     `${comprasBase}/modulo-material/3_consultarPdmMaterial?pagina=1&tamanhoPagina=500&codigoClasse=${item.codigoClasse}&statusPdm=true`,
     { ttl: 86400000 },
   ).catch(() => ({ resultado: [] }))));
   let pdms = pdmPages.flatMap((page) => page.resultado || []);
-  const preferredPdm = [];
-  const normalized = normalize(query);
-  if (normalized.includes('papel') && (normalized.includes('copia') || normalized.includes('a4'))) preferredPdm.push(19746);
-  if (normalized.includes('caneta') && normalized.includes('esferografica')) preferredPdm.push(99);
-  pdms = pdms.map((item) => ({ ...item, _score: similarity(query, item.nomePdm) + (preferredPdm.includes(Number(item.codigoPdm)) ? 80 : 0) }))
-    .sort((a, b) => b._score - a._score).slice(0, 8);
+  const preferredPdm = preferredPdms(query);
+  pdms = pdms.map((item) => ({ ...item, _score: Math.min(100, similarity(query, item.nomePdm) + (preferredPdm.includes(Number(item.codigoPdm)) ? 70 : 0)) }))
+    .filter((item) => preferredPdm.includes(Number(item.codigoPdm)) || item._score >= 22)
+    .sort((a, b) => b._score - a._score).slice(0, 10);
+  if (!pdms.length) return [];
 
-  const itemPages = await Promise.all(pdms.map((item) => fetchJson(
-    `${comprasBase}/modulo-material/4_consultarItemMaterial?pagina=1&tamanhoPagina=500&codigoPdm=${item.codigoPdm}&statusItem=true`,
+  const itemPages = await Promise.all(pdms.map(async (pdm) => ({ pdm, page: await fetchJson(
+    `${comprasBase}/modulo-material/4_consultarItemMaterial?pagina=1&tamanhoPagina=500&codigoPdm=${pdm.codigoPdm}&statusItem=true`,
     { ttl: 86400000 },
-  ).catch(() => ({ resultado: [] }))));
+  ).catch(() => ({ resultado: [] })) })));
   const seen = new Set();
-  return itemPages.flatMap((page) => page.resultado || []).map((item) => ({
-    codigoItem: item.codigoItem,
-    descricaoItem: item.descricaoItem || item.nomePdm,
-    codigoPdm: item.codigoPdm,
-    nomePdm: item.nomePdm,
-    score: similarity(query, `${item.nomePdm || ''} ${item.descricaoItem || ''}`),
-  })).filter((item) => {
+  return itemPages.flatMap(({ pdm, page }) => (page.resultado || []).map((item) => ({ item, pdm }))).map(({ item, pdm }) => {
+    const description = `${item.nomePdm || ''} ${item.descricaoItem || ''}`;
+    const lexical = similarity(query, description);
+    const score = Math.round((lexical * 0.8) + (pdm._score * 0.2));
+    return {
+      codigoItem: item.codigoItem,
+      descricaoItem: item.descricaoItem || item.nomePdm,
+      codigoPdm: item.codigoPdm,
+      nomePdm: item.nomePdm,
+      score,
+      _headMatch: headMatches(query, description),
+    };
+  }).filter((item) => {
     if (!item.codigoItem || seen.has(item.codigoItem)) return false;
     seen.add(item.codigoItem);
-    return true;
-  }).sort((a, b) => b.score - a.score).slice(0, limit);
+    return item._headMatch && item.score >= 48;
+  }).sort((a, b) => b.score - a.score).slice(0, limit).map(({ _headMatch, ...item }) => item);
 }
 
 function unwrapList(value) {

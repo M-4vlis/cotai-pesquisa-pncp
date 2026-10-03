@@ -16,6 +16,7 @@ O produto deve exigir o mínimo possível de recursos de servidor. Planilhas, pe
 - Consulta ao CATMAT e ao PNCP feita pelo servidor da própria ferramenta; nenhuma configuração técnica é exigida da pessoa usuária.
 - Resultados trazem a descrição de origem, preço, unidade, órgão, data, similaridade e link de comprovação.
 - O ranking seleciona os resultados mais comparáveis antes de ordenar por preço.
+- A classificação CATMAT considera grupo, classe, PDM, objeto principal e características; itens sem confiança mínima não seguem para a pesquisa de preços.
 
 ## Executar localmente
 

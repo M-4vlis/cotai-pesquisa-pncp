@@ -131,6 +131,7 @@ async function search() {
   setProgress(step, totalSteps);
 
   try {
+    status('Etapa 1 de 2: analisando o catálogo antes de pesquisar preços…');
     for (let index = 0; index < state.items.length; index += 1) {
       const item = state.items[index];
       status(`Item ${index + 1} de ${state.items.length}: identificando os CATMAT mais semelhantes…`);
@@ -141,15 +142,24 @@ async function search() {
       setProgress(step, totalSteps);
       renderItems();
       await save();
+    }
 
+    state.results = state.items.filter((item) => !item.catmat).map((item) => ({
+      item, catmat: null, alternatives: [], found: [],
+      message: 'Nenhum CATMAT atingiu a confiança mínima. A pesquisa de preços deste item foi interrompida para evitar resultados incorretos.',
+    }));
+    const classified = state.items.filter((item) => item.catmat);
+    step += state.items.length - classified.length;
+    setProgress(step, totalSteps);
+    renderResults();
+
+    for (let index = 0; index < classified.length; index += 1) {
+      const item = classified[index];
       if (!item.catmat) {
-        state.results.push({ item, catmat: null, alternatives: [], found: [], message: 'Não foi possível identificar um CATMAT suficientemente próximo.' });
-        step += 1;
-        setProgress(step, totalSteps);
         continue;
       }
 
-      status(`Item ${index + 1} de ${state.items.length}: pesquisando preços do CATMAT ${item.catmat.codigoItem}…`);
+      status(`Etapa 2 de 2 · item ${index + 1} de ${classified.length}: pesquisando preços apenas para o CATMAT confiável ${item.catmat.codigoItem}…`);
       const prices = await api('/api/prices', {
         q: item.descricao,
         catmat: item.catmat.codigoItem,
@@ -166,7 +176,10 @@ async function search() {
       await save();
     }
     const pricesFound = state.results.reduce((sum, group) => sum + group.found.length, 0);
-    status(pricesFound ? `Pesquisa concluída com ${pricesFound} preço(s). Confirme cada resultado no PNCP antes de utilizá-lo.` : 'Pesquisa concluída. Não foram encontrados preços comparáveis neste período; tente ampliar o período ou reduzir a similaridade mínima.');
+    const rejected = state.results.filter((group) => !group.catmat).length;
+    status(pricesFound
+      ? `Pesquisa concluída com ${pricesFound} preço(s). ${rejected ? `${rejected} item(ns) foram interrompidos por baixa confiança no CATMAT. ` : ''}Confirme cada resultado na fonte oficial antes de utilizá-lo.`
+      : `Pesquisa concluída sem preços comparáveis. ${rejected ? `${rejected} item(ns) não tinham CATMAT confiável e não geraram consultas desnecessárias.` : 'Tente ampliar o período ou reduzir a similaridade mínima.'}`);
   } catch (error) {
     status(error.message || 'Não foi possível concluir a pesquisa agora. Tente novamente em alguns minutos.', true);
   } finally {
