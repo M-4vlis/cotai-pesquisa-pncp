@@ -116,8 +116,10 @@ function hintedGroups(query) {
   const text = [...tokens].join(' ');
   const groups = Object.entries(map).filter(([, words]) => words.some((word) => text.includes(word))).map(([code]) => Number(code));
   const plumbing = ['descarga', 'canopla', 'vaso', 'sanitario', 'torneira', 'chuveiro', 'acoplada', 'hidraulica'];
+  const valveParts = ['acabamento', 'base', 'kit', 'sede', 'reparo', 'botao'];
   if (plumbing.some((token) => tokens.has(token))) groups.push(45);
-  if (tokens.has('valvula') && !tokens.has('descarga') && !tokens.has('canopla') && !tokens.has('acoplada')) groups.push(48);
+  if (tokens.has('valvula') && valveParts.some((token) => tokens.has(token))) groups.push(45);
+  if (tokens.has('valvula') && !groups.includes(45)) groups.push(48);
   return [...new Set(groups)];
 }
 
