@@ -1,2 +1,4 @@
 .firecrawl/
 .DS_Store
+dist/
+site-deploy.tar.gz
