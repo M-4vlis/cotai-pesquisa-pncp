@@ -170,12 +170,13 @@ async function searchCatmat(query, limit) {
       nomePdm: item.nomePdm,
       score,
       _headMatch: headMatches(query, description),
+      _preferredPdm: preferredPdm.includes(Number(item.codigoPdm)),
     };
   }).filter((item) => {
     if (!item.codigoItem || seen.has(item.codigoItem)) return false;
     seen.add(item.codigoItem);
-    return item._headMatch && item.score >= 48;
-  }).sort((a, b) => b.score - a.score).slice(0, limit).map(({ _headMatch, ...item }) => item);
+    return item._headMatch && item.score >= (item._preferredPdm ? 35 : 48);
+  }).sort((a, b) => b.score - a.score).slice(0, limit).map(({ _headMatch, _preferredPdm, ...item }) => item);
 }
 
 function unwrapList(value) {
