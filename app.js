@@ -25,13 +25,46 @@ function demoCandidates(item) { const examples = [
   return examples.map((e,n) => ({descricao:e[0], valor:e[1], unidade:e[2], orgao:e[3], data:e[4], tipo:'Preço homologado', score:score(item.descricao,e[0]), link:'https://pncp.gov.br/app/editais', simulated:true, id:n}));
 }
 async function pncpCandidates(item) {
-  // Adaptador isolado: o proxy deve retornar candidatos normalizados neste formato.
   const proxy = $('proxyUrl').value.trim();
-  if (!proxy) return demoCandidates(item);
-  const url = `${proxy.replace(/\/$/,'')}/search?query=${encodeURIComponent(item.descricao)}`;
-  const response = await fetch(url); if (!response.ok) throw new Error(`Consulta PNCP indisponível (${response.status}).`); return response.json();
+  if (proxy) {
+    const url = `${proxy.replace(/\/$/,'')}/search?query=${encodeURIComponent(item.descricao)}`;
+    const response = await fetch(url); if (!response.ok) throw new Error(`Consulta PNCP indisponível (${response.status}).`); return response.json();
+  }
+  const today = new Date();
+  const end = $('endDate').value || today.toISOString().slice(0,10);
+  const start = $('startDate').value || new Date(today.setMonth(today.getMonth()-6)).toISOString().slice(0,10);
+  const compact = (date) => date.replaceAll('-','');
+  const base = 'https://pncp.gov.br/api/consulta/v1';
+  const url = `${base}/contratacoes/publicacao?dataInicial=${compact(start)}&dataFinal=${compact(end)}&pagina=1&tamanhoPagina=50`;
+  let contracts;
+  try {
+    const response = await fetch(url); if (!response.ok) throw new Error(String(response.status));
+    const body = await response.json(); contracts = body.data || body.content || [];
+  } catch {
+    throw new Error('O PNCP não aceitou a consulta direta deste navegador. Configure o proxy PNCP para concluir a pesquisa.');
+  }
+  const terms = normalize(item.descricao);
+  const likely = contracts.filter(c => terms.some(t => String(c.objetoCompra || c.objeto || '').toLowerCase().includes(t))).slice(0, 12);
+  const batches = await Promise.all(likely.map(async c => {
+    const cnpj = c.orgaoEntidade?.cnpj || c.cnpjOrgao || c.cnpj;
+    const year = c.anoCompra || c.ano;
+    const sequence = c.sequencialCompra || c.sequencial;
+    if (!cnpj || !year || sequence === undefined) return [];
+    try {
+      const r = await fetch(`${base}/orgaos/${cnpj}/compras/${year}/${sequence}/itens`);
+      if (!r.ok) return [];
+      const items = await r.json();
+      return (Array.isArray(items) ? items : items.data || []).map(x => ({
+        descricao: x.descricao || x.descricaoItem || '', valor: Number(x.valorUnitarioEstimado ?? x.valorUnitario ?? 0),
+        unidade: x.unidadeMedida || x.unidadeFornecimento || '', orgao: c.orgaoEntidade?.razaoSocial || c.orgaoEntidade?.nome || 'Órgão público',
+        data: c.dataPublicacaoPncp || c.dataPublicacao, tipo: 'Preço estimado',
+        link: `https://pncp.gov.br/app/editais/${cnpj}/${year}/${sequence}`
+      })).filter(x => x.valor > 0);
+    } catch { return []; }
+  }));
+  return batches.flat();
 }
-async function search() { if (!state.items.length) return status('Importe uma planilha ou use o exemplo antes de pesquisar.'); persistSettings(); $('searchButton').disabled=true; $('searchButton').textContent='Pesquisando…'; state.results=[]; try { const limit=Number($('resultCount').value), min=Number($('minScore').value); for (let i=0;i<state.items.length;i++) { status(`Pesquisando item ${i+1} de ${state.items.length}…`); let found=await pncpCandidates(state.items[i]); found=found.map(x=>({...x, score:x.score ?? score(state.items[i].descricao,x.descricao)})).filter(x=>x.score>=min).sort((a,b)=>b.score-a.score || a.valor-b.valor).slice(0,limit); state.results.push({item:state.items[i],found}); } await save(); renderResults(); status($('proxyUrl').value ? 'Pesquisa concluída.' : 'Modo de demonstração concluído. Configure o proxy PNCP para consultar dados reais.'); } catch(e) { status(e.message || 'A pesquisa não pôde ser concluída.'); } finally { $('searchButton').disabled=false; $('searchButton').textContent='Pesquisar preços'; } }
+async function search() { if (!state.items.length) return status('Importe uma planilha ou use o exemplo antes de pesquisar.'); persistSettings(); $('searchButton').disabled=true; $('searchButton').textContent='Pesquisando…'; state.results=[]; try { const limit=Number($('resultCount').value), min=Number($('minScore').value); for (let i=0;i<state.items.length;i++) { status(`Pesquisando item ${i+1} de ${state.items.length}…`); let found=await pncpCandidates(state.items[i]); found=found.map(x=>({...x, score:x.score ?? score(state.items[i].descricao,x.descricao)})).filter(x=>x.score>=min).sort((a,b)=>b.score-a.score || a.valor-b.valor).slice(0,limit); state.results.push({item:state.items[i],found}); } await save(); renderResults(); status('Pesquisa concluída. Confirme cada resultado no PNCP antes de usá-lo.'); } catch(e) { status(e.message || 'A pesquisa não pôde ser concluída.'); } finally { $('searchButton').disabled=false; $('searchButton').textContent='Pesquisar preços'; } }
 function money(n) { return new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n); }
 function renderResults(){ const sec=$('resultsSection'), list=$('resultsList'); list.innerHTML=''; sec.classList.toggle('hidden',!state.results.length); state.results.forEach(group=>{ const wrap=document.createElement('div'); wrap.className='result-group'; wrap.innerHTML=`<h3>${esc(group.item.descricao)}</h3>`; if(!group.found.length) wrap.innerHTML+='<p class="empty">Nenhum resultado atingiu a similaridade mínima.</p>'; group.found.forEach(r=>{const node=$('resultTemplate').content.cloneNode(true); node.querySelector('.score').textContent=`${r.score}% similar`; node.querySelector('h3').textContent=r.descricao; node.querySelector('.source-description').textContent=r.simulated?'Exemplo visual — conecte o proxy PNCP para dados reais.':r.descricao; node.querySelector('.price').textContent=money(r.valor); node.querySelector('.unit').textContent=r.unidade||'—'; node.querySelector('.agency').textContent=r.orgao||'—'; node.querySelector('.date').textContent=r.data?new Date(r.data+'T12:00:00').toLocaleDateString('pt-BR'):'—'; node.querySelector('.price-type').textContent=r.tipo||'—'; node.querySelector('.evidence').href=r.link||'https://pncp.gov.br/app/editais'; wrap.append(node); }); list.append(wrap); }); }
 function status(text){$('status').textContent=text;}
