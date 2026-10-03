@@ -18,6 +18,7 @@ const aliases = {
   a4: ['210', '297', 'sulfite', 'branco'], sulfite: ['papel', 'impressao'], resma: ['papel'],
   esferografica: ['caneta'], notebook: ['computador', 'microcomputador'], laptop: ['computador', 'microcomputador'],
   pne: ['acessibilidade'], sanitaria: ['hidraulica'], sanitario: ['hidraulica'],
+  contra: ['sede'],
 };
 const stopTokens = new Set(['com', 'para', 'das', 'dos', 'uma', 'uns', 'por', 'sem', 'tipo', 'modelo', 'unidade', 'unidades', 'uso', 'nome', 'referencia', 'de', 'da', 'do', 'e']);
 const lowValueTokens = new Set(['acabamento', 'completo', 'superior', 'inferior', 'cromado', 'cromada', 'material', 'aplicacao', 'caracteristicas', 'adicionais', 'bitola', 'polegada', 'polegadas', 'acionamento']);
@@ -56,7 +57,8 @@ function similarity(query, candidate) {
 function headMatches(query, candidate) {
   const head = baseTokens(query)[0];
   if (!head) return false;
-  return tokenMatches(head, new Set(normalize(candidate)));
+  const target = new Set(normalize(candidate));
+  return normalize(head).some((token) => tokenMatches(token, target));
 }
 
 function constraintPenalty(query, candidate) {
@@ -127,6 +129,7 @@ function preferredPdms(query) {
   if (has('botao', 'descarga')) preferred.push(3828);
   if (has('acabamento', 'valvula') || has('acabamento', 'descarga')) preferred.push(16221);
   if (has('valvula', 'descarga')) preferred.push(16403);
+  if ((tokens.has('kit') || tokens.has('base') || tokens.has('sede')) && tokens.has('valvula')) preferred.push(11649);
   if (tokens.has('papel') && (tokens.has('a4') || has('210', '297'))) preferred.push(19746);
   if (has('caneta', 'esferografica')) preferred.push(99);
   return preferred;
