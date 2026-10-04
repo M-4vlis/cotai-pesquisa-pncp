@@ -557,7 +557,7 @@ async function hierarchicalPdms(query) {
   return pages.flatMap((page) => page.resultado || []);
 }
 
-async function searchCatmat(query, limit) {
+async function searchCatmat(query, limit, debug = false) {
   const [officialLists, preferred] = await Promise.all([
     officialPdmLists(query).catch(() => []),
     directPreferredPdms(query),
@@ -569,7 +569,7 @@ async function searchCatmat(query, limit) {
     pdms = rankPdms(query, fusePdmLists([...retrievalLists, hierarchical]));
   }
   pdms = pdms.slice(0, 14);
-  if (!pdms.length) return [];
+  if (!pdms.length) return debug ? { items: [], debug: { variants: queryVariants(query), preferred: preferredPdms(query), pdms: [] } } : [];
 
   const firstPages = await mapConcurrent(pdms, 5, async (pdm) => {
     const itemUrl = `${comprasBase}/modulo-material/4_consultarItemMaterial?pagina=1&tamanhoPagina=500&codigoPdm=${pdm.codigoPdm}&statusItem=true`;
@@ -595,7 +595,7 @@ async function searchCatmat(query, limit) {
   const overflowPages = await mapConcurrent(overflowRequests, 6, (request) => request);
   const itemPages = [...firstPages, ...overflowPages];
   const seen = new Set();
-  return itemPages.flatMap(({ pdm, page }) => (page.resultado || []).map((item) => ({ item, pdm }))).map(({ item, pdm }) => {
+  const scoredItems = itemPages.flatMap(({ pdm, page }) => (page.resultado || []).map((item) => ({ item, pdm }))).map(({ item, pdm }) => {
     const description = `${item.nomePdm || ''} ${item.descricaoItem || ''}`;
     const lexical = similarity(query, description);
     const objectScore = lateInteractionScore(anchorTokens(query).slice(0, 5).join(' '), description);
@@ -628,7 +628,8 @@ async function searchCatmat(query, limit) {
       _preferredPdm: pdm._preferred,
       _officialPdm: Boolean(pdm._official),
     };
-  }).filter((item) => {
+  });
+  const items = scoredItems.filter((item) => {
     if (!item.codigoItem || seen.has(item.codigoItem)) return false;
     seen.add(item.codigoItem);
     const threshold = item._preferredPdm ? 30 : (item._officialPdm ? 34 : 40);
@@ -636,6 +637,17 @@ async function searchCatmat(query, limit) {
     return domainMatch && item.score >= threshold;
   }).sort((a, b) => b.score - a.score).slice(0, limit)
     .map(({ _headMatch, _primaryMatch, _identityScore, _semanticMatch, _preferredPdm, _officialPdm, ...item }) => item);
+  if (!debug) return items;
+  return {
+    items,
+    debug: {
+      variants: queryVariants(query),
+      preferred: preferredPdms(query),
+      pdms: pdms.map((pdm) => ({ code: pdm.codigoPdm, name: pdm.nomePdm, score: pdm._score, preferred: pdm._preferred })),
+      pages: itemPages.map(({ pdm, page }) => ({ code: pdm.codigoPdm, count: (page.resultado || []).length })),
+      topScored: scoredItems.sort((a, b) => b.score - a.score).slice(0, 12),
+    },
+  };
 }
 
 function unwrapList(value) {
@@ -808,8 +820,9 @@ export default {
       const query = (url.searchParams.get('q') || '').trim();
       if (query.length < 3) return json({ message: 'A descrição do item é muito curta para identificar o CATMAT.' }, 400);
       try {
-        const items = await searchCatmat(query, Math.min(5, Number(url.searchParams.get('limit')) || 3));
-        return json({ items });
+        const debug = url.searchParams.get('debug') === '1';
+        const result = await searchCatmat(query, Math.min(debug ? 20 : 5, Number(url.searchParams.get('limit')) || 3), debug);
+        return json(debug ? result : { items: result });
       } catch {
         return json({ message: 'Não foi possível consultar o catálogo CATMAT agora. Tente novamente em alguns minutos.' }, 503);
       }
