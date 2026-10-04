@@ -17,7 +17,7 @@ O produto deve exigir o mínimo possível de recursos de servidor. Planilhas, pe
 - Resultados trazem a descrição de origem, preço, unidade, órgão, data, similaridade e link de comprovação.
 - Cada preço mostra o número do item no PNCP e abre diretamente a página da contratação correspondente no portal.
 - O ranking seleciona os resultados mais comparáveis antes de ordenar por preço.
-- A classificação CATMAT considera grupo, classe, PDM, objeto principal e características; itens sem confiança mínima não seguem para a pesquisa de preços.
+- A classificação CATMAT usa a busca textual do catálogo oficial, reforço por PDM, grupo, classe, objeto principal, sinônimos e características. Quando a busca textual não basta, entra uma busca hierárquica de contingência; itens sem evidência semântica mínima não seguem para a pesquisa de preços.
 
 ## Executar localmente
 

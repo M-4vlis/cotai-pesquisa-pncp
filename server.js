@@ -18,10 +18,13 @@ const aliases = {
   a4: ['210', '297', 'sulfite', 'branco'], sulfite: ['papel', 'impressao'], resma: ['papel'],
   esferografica: ['caneta'], notebook: ['computador', 'microcomputador'], laptop: ['computador', 'microcomputador'],
   pne: ['acessibilidade'], sanitaria: ['hidraulica'], sanitario: ['hidraulica'],
-  contra: ['sede'],
+  contra: ['sede'], refrigerador: ['geladeira'], geladeira: ['refrigerador'],
+  celular: ['telefone', 'smartphone'], smartphone: ['telefone', 'celular'],
+  condicionador: ['climatizador'], toner: ['cartucho'], pen: ['pendrive'],
 };
 const stopTokens = new Set(['com', 'para', 'das', 'dos', 'uma', 'uns', 'por', 'sem', 'tipo', 'modelo', 'unidade', 'unidades', 'uso', 'nome', 'referencia', 'de', 'da', 'do', 'e']);
 const lowValueTokens = new Set(['acabamento', 'completo', 'superior', 'inferior', 'cromado', 'cromada', 'material', 'aplicacao', 'caracteristicas', 'adicionais', 'bitola', 'polegada', 'polegadas', 'acionamento']);
+const genericObjectTokens = new Set(['aquisicao', 'fornecimento', 'compra', 'contratacao', 'material', 'produto', 'item', 'peca', 'pecas', 'acessorio', 'acessorios', 'kit', 'conjunto', 'lote', 'base', 'acabamento', 'completo']);
 const unrequestedConstraints = new Set(['colorido', 'rosa', 'vermelho', 'verde', 'amarelo', 'preto', 'branco', 'offset', 'couche', 'personalizado', 'couro', 'revestimento', 'gravacao', 'silk', 'grip', 'automatico', 'eletrico', 'sensor', 'mictorio']);
 
 function baseTokens(value = '') {
@@ -55,10 +58,26 @@ function similarity(query, candidate) {
 }
 
 function headMatches(query, candidate) {
-  const head = baseTokens(query)[0];
-  if (!head) return false;
+  const heads = anchorTokens(query);
+  if (!heads.length) return similarity(query, candidate) >= 45;
   const target = new Set(normalize(candidate));
-  return normalize(head).some((token) => tokenMatches(token, target));
+  return heads.some((head) => normalize(head).some((token) => tokenMatches(token, target)));
+}
+
+function anchorTokens(value = '') {
+  const tokens = baseTokens(value).filter((token) => !genericObjectTokens.has(token) && !lowValueTokens.has(token) && !/^\d/.test(token));
+  return [...new Set(tokens.flatMap((token) => [token, ...(aliases[token] || [])]))];
+}
+
+function semanticEvidence(query, candidate) {
+  const anchors = anchorTokens(query);
+  const target = new Set(normalize(candidate));
+  const matched = anchors.filter((token) => tokenMatches(token, target));
+  return {
+    anchors: anchors.length,
+    matched: new Set(matched).size,
+    coverage: anchors.length ? new Set(matched).size / anchors.length : 0,
+  };
 }
 
 function constraintPenalty(query, candidate) {
@@ -78,7 +97,10 @@ async function fetchJson(url, { timeout = 12000, retries = 1, ttl = 0 } = {}) {
       const response = await fetch(url, { headers: upstreamHeaders, signal: controller.signal });
       const type = response.headers.get('content-type') || '';
       if (!response.ok || !type.includes('json')) throw new Error(`upstream_${response.status}`);
-      const value = await response.json();
+      let value = await response.json();
+      if (typeof value === 'string' && /^[\[{]/.test(value.trim())) {
+        try { value = JSON.parse(value); } catch { /* Mantém a resposta original se não for JSON duplamente codificado. */ }
+      }
       if (ttl) memoryCache.set(url, { value, expires: Date.now() + ttl });
       return value;
     } catch (error) {
@@ -93,6 +115,7 @@ async function fetchJson(url, { timeout = 12000, retries = 1, ttl = 0 } = {}) {
 
 const comprasBase = 'https://dadosabertos.compras.gov.br';
 const pncpBase = 'https://pncp.gov.br';
+const catalogoBase = 'https://cnbs.estaleiro.serpro.gov.br/cnbs-api';
 
 async function getClasses() {
   const urls = [1, 2].map((page) => `${comprasBase}/modulo-material/2_consultarClasseMaterial?pagina=${page}&tamanhoPagina=500&statusClasse=true`);
@@ -137,23 +160,76 @@ function preferredPdms(query) {
   return preferred;
 }
 
-async function searchCatmat(query, limit) {
+function pdmCode(item) {
+  return Number(item.codigoPdm ?? item.codigoPDM);
+}
+
+function rankPdms(query, items) {
+  const preferred = preferredPdms(query);
+  const groups = hintedGroups(query);
+  const seen = new Set();
+  return items.map((item) => {
+    const codigoPdm = pdmCode(item);
+    const nomePdm = item.nomePdm || item.descricaoPDM || '';
+    const classification = `${nomePdm} ${item.nomeClasse || item.descricaoClasse || ''} ${item.nomeGrupo || item.descricaoGrupo || ''}`;
+    const nameScore = similarity(query, nomePdm);
+    const contextScore = similarity(query, classification);
+    const evidence = semanticEvidence(query, nomePdm);
+    const preferredMatch = preferred.includes(codigoPdm);
+    const groupMatch = groups.includes(Number(item.codigoGrupo));
+    const score = Math.min(100, Math.round(
+      (nameScore * 0.68) + (contextScore * 0.17) + Math.min(15, evidence.matched * 5)
+      + (groupMatch ? 8 : 0) + (item._official ? 5 : 0) + (preferredMatch ? 60 : 0),
+    ));
+    return { ...item, codigoPdm, nomePdm, _score: score, _evidence: evidence, _preferred: preferredMatch };
+  }).filter((item) => {
+    if (!item.codigoPdm || seen.has(item.codigoPdm) || item.statusPDM === false || item.statusPdm === false) return false;
+    seen.add(item.codigoPdm);
+    return item._preferred || (item._evidence.matched > 0 && item._score >= 24) || item._score >= 38;
+  }).sort((a, b) => b._score - a._score);
+}
+
+async function officialPdms(query) {
+  const cleaned = baseTokens(query).join(' ').slice(0, 180);
+  if (cleaned.length < 2) return [];
+  const url = `${catalogoBase}/material/v1/palavra?palavra=${encodeURIComponent(cleaned)}&apenasAtivos=nao`;
+  const payload = await fetchJson(url, { timeout: 18000, retries: 1, ttl: 86400000 });
+  return (Array.isArray(payload) ? payload : []).map((item) => ({ ...item, _official: true }));
+}
+
+async function directPreferredPdms(query) {
+  const codes = preferredPdms(query);
+  const pages = await Promise.all(codes.map((codigoPdm) => fetchJson(
+    `${comprasBase}/modulo-material/3_consultarPdmMaterial?pagina=1&tamanhoPagina=20&codigoPdm=${codigoPdm}&statusPdm=true`,
+    { ttl: 86400000 },
+  ).catch(() => ({ resultado: [] }))));
+  return pages.flatMap((page) => page.resultado || []);
+}
+
+async function hierarchicalPdms(query) {
   const classes = await getClasses();
   const groups = hintedGroups(query);
   const eligible = groups.length ? classes.filter((item) => groups.includes(Number(item.codigoGrupo))) : classes;
   const rankedClasses = eligible.map((item) => ({ ...item, _score: similarity(query, `${item.nomeGrupo} ${item.nomeClasse}`) }))
-    .sort((a, b) => b._score - a._score).slice(0, groups.length ? 8 : 5);
-  if (!groups.length && (!rankedClasses.length || rankedClasses[0]._score < 20)) return [];
-
-  const pdmPages = await Promise.all(rankedClasses.map((item) => fetchJson(
+    .sort((a, b) => b._score - a._score).slice(0, groups.length ? 10 : 8);
+  const pages = await Promise.all(rankedClasses.map((item) => fetchJson(
     `${comprasBase}/modulo-material/3_consultarPdmMaterial?pagina=1&tamanhoPagina=500&codigoClasse=${item.codigoClasse}&statusPdm=true`,
     { ttl: 86400000 },
   ).catch(() => ({ resultado: [] }))));
-  let pdms = pdmPages.flatMap((page) => page.resultado || []);
-  const preferredPdm = preferredPdms(query);
-  pdms = pdms.map((item) => ({ ...item, _score: Math.min(100, similarity(query, item.nomePdm) + (preferredPdm.includes(Number(item.codigoPdm)) ? 70 : 0)) }))
-    .filter((item) => preferredPdm.includes(Number(item.codigoPdm)) || item._score >= 22)
-    .sort((a, b) => b._score - a._score).slice(0, 10);
+  return pages.flatMap((page) => page.resultado || []);
+}
+
+async function searchCatmat(query, limit) {
+  const [official, preferred] = await Promise.all([
+    officialPdms(query).catch(() => []),
+    directPreferredPdms(query),
+  ]);
+  let pdms = rankPdms(query, [...preferred, ...official]);
+  if (pdms.length < 8) {
+    const hierarchical = await hierarchicalPdms(query);
+    pdms = rankPdms(query, [...preferred, ...official, ...hierarchical]);
+  }
+  pdms = pdms.slice(0, 12);
   if (!pdms.length) return [];
 
   const itemPages = await Promise.all(pdms.map(async (pdm) => ({ pdm, page: await fetchJson(
@@ -164,7 +240,10 @@ async function searchCatmat(query, limit) {
   return itemPages.flatMap(({ pdm, page }) => (page.resultado || []).map((item) => ({ item, pdm }))).map(({ item, pdm }) => {
     const description = `${item.nomePdm || ''} ${item.descricaoItem || ''}`;
     const lexical = similarity(query, description);
-    const score = Math.max(0, Math.round((lexical * 0.8) + (pdm._score * 0.2) - constraintPenalty(query, description)));
+    const evidence = semanticEvidence(query, description);
+    const score = Math.min(100, Math.max(0, Math.round(
+      (lexical * 0.7) + (pdm._score * 0.3) + Math.min(18, evidence.matched * 6) - constraintPenalty(query, description),
+    )));
     return {
       codigoItem: item.codigoItem,
       descricaoItem: item.descricaoItem || item.nomePdm,
@@ -172,13 +251,17 @@ async function searchCatmat(query, limit) {
       nomePdm: item.nomePdm,
       score,
       _headMatch: headMatches(query, description),
-      _preferredPdm: preferredPdm.includes(Number(item.codigoPdm)),
+      _semanticMatch: pdm._preferred || (pdm._evidence.matched > 0 && (pdm._score >= 28 || lexical >= 35)),
+      _preferredPdm: pdm._preferred,
+      _officialPdm: Boolean(pdm._official),
     };
   }).filter((item) => {
     if (!item.codigoItem || seen.has(item.codigoItem)) return false;
     seen.add(item.codigoItem);
-    return item._headMatch && item.score >= (item._preferredPdm ? 35 : 48);
-  }).sort((a, b) => b.score - a.score).slice(0, limit).map(({ _headMatch, _preferredPdm, ...item }) => item);
+    const threshold = item._preferredPdm ? 30 : (item._officialPdm ? 32 : 40);
+    return item._headMatch && item._semanticMatch && item.score >= threshold;
+  }).sort((a, b) => b.score - a.score).slice(0, limit)
+    .map(({ _headMatch, _semanticMatch, _preferredPdm, _officialPdm, ...item }) => item);
 }
 
 function unwrapList(value) {
