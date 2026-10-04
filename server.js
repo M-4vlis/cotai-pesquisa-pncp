@@ -49,7 +49,7 @@ const exclusiveAttributeGroups = [
   ['unipolar', 'monopolar', 'bipolar', 'tripolar', 'tetrapolar'],
   ['monofasico', 'bifasico', 'trifasico'],
   ['aci', 'acii', 'aciii'],
-  ['curvaa', 'curvab', 'curvac'],
+  ['curvaa', 'curvab', 'curvac', 'curvad'],
   ['fosco', 'semibrilho', 'brilhante'],
 ];
 
@@ -785,9 +785,9 @@ function materialSimilarity(query, catmatDescription, candidate, requestedUnit, 
   )));
   const reasons = [];
   if (catalogScore >= 72) reasons.push('mesmo material CATMAT');
-  if (objectScore >= 75) reasons.push('objeto compatÃ­vel');
-  if (specs.total && specs.matched) reasons.push('medidas compatÃ­veis');
-  if (unitScore === 100) reasons.push('unidade compatÃ­vel');
+  if (objectScore >= 75) reasons.push('objeto compatível');
+  if (specs.total && specs.matched) reasons.push('medidas compatíveis');
+  if (unitScore === 100) reasons.push('unidade compatível');
   return {
     score,
     reasons,
@@ -872,7 +872,7 @@ function candidatePool(candidates) {
 async function resolvePrices({ query, unit, candidates, start, end, limit, minScore }) {
   const pool = candidatePool(candidates);
   if (!pool.length) return { selected: null, alternatives: [], items: [], evaluations: [], message: 'Nenhum CATMAT compatível foi localizado.' };
-  const evaluations = await mapConcurrent(pool, 2, async (candidate) => {
+  const evaluations = await mapConcurrent(pool, 1, async (candidate) => {
     try {
       const items = await searchPrices({
         query,
