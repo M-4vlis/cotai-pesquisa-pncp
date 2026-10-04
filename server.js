@@ -385,6 +385,8 @@ function variantConflictPenalty(query, candidate) {
   if (/\b(?:reducao|redutor|reduzido)\b/.test(target) && !/\b(?:reducao|redutor|reduzido)\b/.test(source)) penalty += 18;
   if (/\bsem cabeca\b/.test(target) && !/\bsem cabeca\b/.test(source)) penalty += 28;
   if (/\bsextavad[oa] intern[oa]\b/.test(target) && !/\bintern[oa]\b/.test(source)) penalty += 14;
+  if (/\bparafuso sextavad[oa]\b/.test(source) && /\bcabeca cilindrica\b/.test(target) && !/\bcilindric[oa]\b/.test(source)) penalty += 14;
+  if (/\bparafuso sextavad[oa]\b/.test(source) && /\bcabeca escareada\b/.test(target) && !/\bescaread[oa]\b/.test(source)) penalty += 18;
   if (/\brosca esquerda\b/.test(target) && !/\besquerda\b/.test(source)) penalty += 16;
   if (/\buso naval\b/.test(target) && !/\bnaval\b/.test(source)) penalty += 6;
   return penalty;
