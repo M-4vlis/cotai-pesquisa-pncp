@@ -20,6 +20,7 @@ O produto deve exigir o mínimo possível de recursos de servidor. Planilhas, pe
 - A classificação CATMAT usa recuperação em múltiplas consultas, fusão de rankings e reranqueamento por PDM, classe, grupo, objeto principal, sinônimos, variações ortográficas, medidas e características. Quando a busca textual não basta, entra uma busca hierárquica de contingência.
 - Materiais de manutenção e construção civil recebem expansão de consulta e validação especializada para hidráulica, elétrica, alvenaria, pintura, ferragens, soldagem, ferramentas e manutenção mecânica.
 - A similaridade dos preços considera separadamente descrição, objeto, CATMAT, unidade, números e medidas, com penalidades para especificações incompatíveis; não há mais pontuação mínima artificial.
+- A resolução final usa uma arquitetura em cascata: recupera até oito candidatos, reranqueia pelo tipo principal e pelas especificações, testa automaticamente até quatro CATMAT distintos no PNCP e combina similaridade semântica com evidência de preços reais. Se o primeiro código não tiver resultados, a melhor alternativa compatível é selecionada sem intervenção do usuário.
 - A interface acompanha as quatro etapas da pesquisa, mostra indicadores consolidados e organiza os resultados em uma tabela responsiva.
 
 ## Executar localmente

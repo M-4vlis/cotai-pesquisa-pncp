@@ -240,6 +240,39 @@ function similarity(query, candidate) {
   return Math.min(100, Math.round((late * 0.72) + (phrase * 0.16) + (fuzzy * 0.12)));
 }
 
+function intentHeadTokens(value = '') {
+  const plain = String(value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  const prefix = plain.split(/\b(?:para|destinad[oa]s?|compativel|aplicacao|uso)\b/)[0] || plain;
+  const tokens = baseTokens(prefix).filter((token) => !unitLookup[token] && !packagingTokens.has(token) && !/^\d/.test(token));
+  const fallback = baseTokens(value).filter((token) => !unitLookup[token] && !packagingTokens.has(token) && !/^\d/.test(token));
+  return [...new Set(tokens.length ? tokens : fallback)].slice(0, 4);
+}
+
+function intentHeadScore(query, candidate) {
+  const heads = intentHeadTokens(query);
+  if (!heads.length) return similarity(query, candidate);
+  const target = new Set(normalize(candidate));
+  const first = heads[0];
+  const firstScore = Math.max(0, ...[first, ...(aliases[first] || [])]
+    .flatMap((token) => [...target].map((other) => tokenAffinity(token, other))));
+  const remaining = heads.slice(1);
+  const remainingScore = remaining.length
+    ? remaining.reduce((sum, token) => sum + Math.max(0, ...[token, ...(aliases[token] || [])]
+      .flatMap((value) => [...target].map((other) => tokenAffinity(value, other)))), 0) / remaining.length
+    : firstScore;
+  return Math.round(((firstScore * 0.72) + (remainingScore * 0.28)) * 100);
+}
+
+function intentHeadPenalty(query, candidate) {
+  const heads = intentHeadTokens(query);
+  if (!heads.length) return 0;
+  const target = new Set(normalize(candidate));
+  const first = heads[0];
+  const matched = [first, ...(aliases[first] || [])].some((token) => tokenMatches(token, target));
+  return matched ? 0 : 24;
+}
+
 function headMatches(query, candidate) {
   const heads = anchorTokens(query);
   if (!heads.length) return similarity(query, candidate) >= 45;
@@ -614,19 +647,21 @@ async function searchCatmat(query, limit) {
     const lexical = similarity(query, description);
     const objectScore = lateInteractionScore(anchorTokens(query).slice(0, 5).join(' '), description);
     const identityScore = objectIdentityScore(query, description);
+    const headScore = intentHeadScore(query, description);
     const specs = specificationCompatibility(query, description);
     const identifiers = identifierCompatibility(query, description);
     const evidence = semanticEvidence(query, description);
     const score = Math.min(100, Math.max(0, Math.round(
-      (lexical * 0.22) + (pdm._score * 0.16) + (objectScore * 0.13) + (identityScore * 0.27)
-      + (specs.score * 0.12) + (identifiers.score * 0.10)
-      - constraintPenalty(query, description),
+      (lexical * 0.17) + (pdm._score * 0.14) + (objectScore * 0.10) + (identityScore * 0.18)
+      + (headScore * 0.23) + (specs.score * 0.10) + (identifiers.score * 0.08)
+      - constraintPenalty(query, description) - intentHeadPenalty(query, description),
     )));
     const reasons = [];
     if (objectScore >= 75) reasons.push('objeto principal compatível');
     if (specs.total && specs.matched) reasons.push('medidas compatíveis');
     if (phraseScore(query, description) >= 35) reasons.push('descrição próxima');
     if (identifiers.total && identifiers.matched) reasons.push('referencia exata');
+    if (headScore >= 72) reasons.push('tipo de item compatível');
     return {
       codigoItem: item.codigoItem,
       descricaoItem: item.descricaoItem || item.nomePdm,
@@ -638,6 +673,7 @@ async function searchCatmat(query, limit) {
       _headMatch: headMatches(query, description),
       _primaryMatch: primaryObjectMatches(query, description),
       _identityScore: identityScore,
+      _headScore: headScore,
       _semanticMatch: pdm._preferred || objectScore >= 48 || (pdm._objectScore >= 50 && lexical >= 34),
       _preferredPdm: pdm._preferred,
       _officialPdm: Boolean(pdm._official),
@@ -648,9 +684,10 @@ async function searchCatmat(query, limit) {
     seen.add(item.codigoItem);
     const threshold = item._preferredPdm ? 30 : (item._officialPdm ? 34 : 40);
     const domainMatch = matchedConcepts(query).length ? item._identityScore >= 70 : item._primaryMatch;
-    return domainMatch && item.score >= threshold;
+    const bestAvailable = item._preferredPdm || item._headScore >= 62 || (item._semanticMatch && item.score >= 44);
+    return (domainMatch || bestAvailable) && item.score >= Math.min(threshold, 32);
   }).sort((a, b) => b.score - a.score).slice(0, limit)
-    .map(({ _headMatch, _primaryMatch, _identityScore, _semanticMatch, _preferredPdm, _officialPdm, ...item }) => item);
+    .map(({ _headMatch, _primaryMatch, _identityScore, _headScore, _semanticMatch, _preferredPdm, _officialPdm, ...item }) => item);
   return items;
 }
 
@@ -741,7 +778,7 @@ function materialSimilarity(query, catmatDescription, candidate, requestedUnit, 
   };
 }
 
-async function searchPrices({ query, unit, catmat, catmatDescription, start, end, limit, minScore }) {
+async function searchPrices({ query, unit, catmat, catmatDescription, catmatScore = 0, start, end, limit, minScore }) {
   const params = new URLSearchParams({
     pagina: '1', tamanhoPagina: '500', tipo: 'codigoItemCatalogo', codigo: catmat,
     dataResultado: 'true', dataCompraInicio: start, dataCompraFim: end,
@@ -753,6 +790,12 @@ async function searchPrices({ query, unit, catmat, catmatDescription, start, end
     const description = item.descricaoDetalhadaItem || item.descricaoItem || catmatDescription;
     const offeredUnit = item.nomeUnidadeFornecimento || item.siglaUnidadeFornecimento || item.nomeUnidadeMedida || item.siglaUnidadeMedida || '';
     const match = materialSimilarity(query, catmatDescription, description, unit, offeredUnit);
+    const catalogConfidence = Math.min(100, Math.max(0, Number(catmatScore) || 0));
+    const verifiedScore = catalogConfidence
+      ? Math.min(100, Math.round((catalogConfidence * 0.66) + (match.score * 0.34) + 8))
+      : match.score;
+    const reasons = [...match.reasons];
+    if (catalogConfidence) reasons.unshift('CATMAT confirmado no registro');
     return {
       _source: item,
       descricao: description,
@@ -762,9 +805,9 @@ async function searchPrices({ query, unit, catmat, catmatDescription, start, end
       fornecedor: item.nomeFornecedor || '',
       data: item.dataResultado || item.dataCompra || '',
       tipo: 'Preço praticado',
-      score: match.score,
-      matchReasons: match.reasons,
-      matchDetails: match.details,
+      score: verifiedScore,
+      matchReasons: reasons,
+      matchDetails: { ...match.details, catalogCandidate: catalogConfidence, descriptionScore: match.score },
     };
   }).filter((item) => {
     const key = `${item._source.idCompraItem || ''}:${item._source.idCompra || ''}:${item.valor}`;
@@ -775,7 +818,7 @@ async function searchPrices({ query, unit, catmat, catmatDescription, start, end
     .sort((a, b) => b.score - a.score || a.valor - b.valor)
     .slice(0, Math.max(limit * 6, 30));
 
-  const enriched = await Promise.all(ranked.map(async (item) => {
+  const enriched = await mapConcurrent(ranked, 5, async (item) => {
     try {
       const reference = await pncpReference(item._source);
       if (!reference) return null;
@@ -786,6 +829,81 @@ async function searchPrices({ query, unit, catmat, catmatDescription, start, end
     }
   }));
   return enriched.filter(Boolean).slice(0, limit);
+}
+
+function candidatePool(candidates) {
+  const valid = candidates.filter((candidate) => candidate && /^\d+$/.test(String(candidate.codigoItem || '')))
+    .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
+  if (!valid.length) return [];
+  const topScore = Number(valid[0].score) || 0;
+  const eligible = valid.filter((candidate) => (Number(candidate.score) || 0) >= Math.max(30, topScore - 26)).slice(0, 8);
+  const selected = [eligible[0]];
+  const pdms = new Set([String(eligible[0].codigoPdm || '')]);
+  eligible.slice(1).forEach((candidate) => {
+    const pdm = String(candidate.codigoPdm || '');
+    if (selected.length < 4 && pdm && !pdms.has(pdm)) {
+      selected.push(candidate);
+      pdms.add(pdm);
+    }
+  });
+  eligible.forEach((candidate) => {
+    if (selected.length < 4 && !selected.some((item) => String(item.codigoItem) === String(candidate.codigoItem))) selected.push(candidate);
+  });
+  return selected;
+}
+
+async function resolvePrices({ query, unit, candidates, start, end, limit, minScore }) {
+  const pool = candidatePool(candidates);
+  if (!pool.length) return { selected: null, alternatives: [], items: [], evaluations: [], message: 'Nenhum CATMAT compatível foi localizado.' };
+  const evaluations = await mapConcurrent(pool, 2, async (candidate) => {
+    try {
+      const items = await searchPrices({
+        query,
+        unit,
+        catmat: String(candidate.codigoItem),
+        catmatDescription: candidate.descricaoItem || candidate.nomePdm || '',
+        catmatScore: Number(candidate.score) || 0,
+        start,
+        end,
+        limit,
+        minScore,
+      });
+      const bestPriceScore = items.length ? Math.max(...items.map((item) => Number(item.score) || 0)) : 0;
+      const coverage = Math.min(100, Math.round((items.length / Math.max(1, limit)) * 100));
+      const resolutionScore = Math.round(((Number(candidate.score) || 0) * 0.58) + (bestPriceScore * 0.27) + (coverage * 0.15));
+      return { candidate, items, bestPriceScore, coverage, resolutionScore, error: '' };
+    } catch {
+      return { candidate, items: [], bestPriceScore: 0, coverage: 0, resolutionScore: Math.round((Number(candidate.score) || 0) * 0.58), error: 'Consulta temporariamente indisponível' };
+    }
+  });
+  const withEvidence = evaluations.filter((evaluation) => evaluation.items.length)
+    .sort((a, b) => b.resolutionScore - a.resolutionScore || (Number(b.candidate.score) || 0) - (Number(a.candidate.score) || 0));
+  const selectedEvaluation = withEvidence[0] || evaluations[0];
+  const selected = selectedEvaluation.candidate;
+  const alternatives = candidates.filter((candidate) => String(candidate.codigoItem) !== String(selected.codigoItem));
+  const topCandidate = candidates[0];
+  const selectionReason = selectedEvaluation.items.length
+    ? (String(selected.codigoItem) === String(topCandidate?.codigoItem) ? 'Melhor correspondência confirmada no PNCP' : 'Alternativa mais compatível com preços no PNCP')
+    : 'Melhor correspondência do catálogo; sem preço no período';
+  const failed = evaluations.filter((evaluation) => evaluation.error).length;
+  const message = selectedEvaluation.items.length
+    ? ''
+    : (failed === evaluations.length
+      ? 'O PNCP não respondeu às tentativas desta pesquisa. Tente novamente em alguns minutos.'
+      : `Nenhum preço comparável foi localizado após testar ${evaluations.length} CATMAT no período.`);
+  return {
+    selected: { ...selected, selectionReason },
+    alternatives,
+    items: selectedEvaluation.items,
+    evaluations: evaluations.map((evaluation) => ({
+      codigoItem: evaluation.candidate.codigoItem,
+      score: evaluation.candidate.score,
+      priceCount: evaluation.items.length,
+      resolutionScore: evaluation.resolutionScore,
+    })),
+    testedCatmats: evaluations.length,
+    message,
+  };
 }
 
 export default {
@@ -800,7 +918,7 @@ export default {
       const query = (url.searchParams.get('q') || '').trim();
       if (query.length < 3) return json({ message: 'A descrição do item é muito curta para identificar o CATMAT.' }, 400);
       try {
-        const items = await searchCatmat(query, Math.min(5, Number(url.searchParams.get('limit')) || 3));
+        const items = await searchCatmat(query, Math.min(8, Number(url.searchParams.get('limit')) || 5));
         return json({ items });
       } catch {
         return json({ message: 'Não foi possível consultar o catálogo CATMAT agora. Tente novamente em alguns minutos.' }, 503);
@@ -813,6 +931,7 @@ export default {
         unit: (url.searchParams.get('unit') || '').trim(),
         catmat: url.searchParams.get('catmat') || '',
         catmatDescription: url.searchParams.get('catmatDescription') || '',
+        catmatScore: Number(url.searchParams.get('catmatScore')) || 0,
         start: url.searchParams.get('start') || '',
         end: url.searchParams.get('end') || '',
         limit: Math.min(10, Number(url.searchParams.get('limit')) || 5),
@@ -824,6 +943,28 @@ export default {
       try {
         const items = await searchPrices(input);
         return json({ items, message: items.length ? '' : 'Nenhum preço comparável foi localizado no PNCP para este CATMAT e período.' });
+      } catch {
+        return json({ message: 'O PNCP está demorando para responder. Aguarde um momento e tente novamente.' }, 503);
+      }
+    }
+
+    if (url.pathname === '/api/resolve-prices' && request.method === 'POST') {
+      let input;
+      try { input = await request.json(); } catch { return json({ message: 'Os dados da pesquisa são inválidos.' }, 400); }
+      const safe = {
+        query: String(input.query || '').trim().slice(0, 500),
+        unit: String(input.unit || '').trim().slice(0, 40),
+        candidates: Array.isArray(input.candidates) ? input.candidates.slice(0, 8) : [],
+        start: String(input.start || ''),
+        end: String(input.end || ''),
+        limit: Math.min(10, Math.max(1, Number(input.limit) || 5)),
+        minScore: Math.min(100, Math.max(30, Number(input.minScore) || 65)),
+      };
+      if (!safe.query || !safe.candidates.length || !/^\d{4}-\d{2}-\d{2}$/.test(safe.start) || !/^\d{4}-\d{2}-\d{2}$/.test(safe.end)) {
+        return json({ message: 'Os dados da pesquisa estão incompletos.' }, 400);
+      }
+      try {
+        return json(await resolvePrices(safe));
       } catch {
         return json({ message: 'O PNCP está demorando para responder. Aguarde um momento e tente novamente.' }, 503);
       }

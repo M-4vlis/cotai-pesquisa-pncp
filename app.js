@@ -127,6 +127,17 @@ async function api(path, params) {
   return body;
 }
 
+async function postApi(path, payload) {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.message || 'O serviço público está temporariamente indisponível. Tente novamente em alguns minutos.');
+  return body;
+}
+
 function setProgress(current, total) {
   $('progressWrap').classList.remove('hidden');
   $('progressWrap').setAttribute('aria-hidden', 'false');
@@ -164,7 +175,7 @@ async function search() {
     status('Etapa 1 de 2: identificando os CATMAT com busca híbrida e validação das especificações…');
     await mapLimit(state.items, 1, async (item, index) => {
       try {
-        const catalog = await api('/api/catmat', { q: item.descricao, limit: 5 });
+        const catalog = await api('/api/catmat', { q: item.descricao, limit: 8 });
         item.catmatSuggestions = catalog.items || [];
         item.catmat = item.catmatSuggestions[0] || null;
         item.catalogError = item.catmat ? '' : 'Nenhum CATMAT semanticamente compatível foi localizado.';
@@ -183,20 +194,28 @@ async function search() {
 
     const classified = state.items.filter((item) => item.catmat);
     setStage(3);
-    status(`Etapa 2 de 2: consultando preços para ${classified.length} CATMAT confiáveis…`);
+    status(`Etapa 2 de 2: validando até quatro CATMAT por item com preços reais do PNCP…`);
     const priceGroups = await mapLimit(classified, 2, async (item, index) => {
       try {
-        const prices = await api('/api/prices', {
-          q: item.descricao,
+        const resolution = await postApi('/api/resolve-prices', {
+          query: item.descricao,
           unit: item.unidade || '',
-          catmat: item.catmat.codigoItem,
-          catmatDescription: item.catmat.descricaoItem,
+          candidates: item.catmatSuggestions,
           start: period.start,
           end: period.end,
           limit: $('resultCount').value,
           minScore: $('minScore').value,
         });
-        return { item, catmat: item.catmat, alternatives: item.catmatSuggestions.slice(1), found: prices.items || [], message: prices.message || '' };
+        item.catmat = resolution.selected || item.catmat;
+        return {
+          item,
+          catmat: item.catmat,
+          alternatives: resolution.alternatives || item.catmatSuggestions.filter((candidate) => candidate.codigoItem !== item.catmat.codigoItem),
+          found: resolution.items || [],
+          message: resolution.message || '',
+          testedCatmats: resolution.testedCatmats || 1,
+          evaluations: resolution.evaluations || [],
+        };
       } catch (error) {
         return { item, catmat: item.catmat, alternatives: item.catmatSuggestions.slice(1), found: [], message: error.message };
       } finally {
@@ -241,9 +260,10 @@ function formatDate(value) {
 
 function catalogCell(group) {
   if (!group.catmat) return '<span class="pending-chip">Não identificado</span>';
+  const reason = group.catmat.selectionReason ? `<span class="selection-reason">${esc(group.catmat.selectionReason)}</span>` : '';
   const alternatives = group.alternatives?.length
     ? `<details><summary>Outras sugestões</summary>${group.alternatives.map((item) => `<div>${esc(item.codigoItem)} · ${esc(item.nomePdm || item.descricaoItem)} (${item.score}%)</div>`).join('')}</details>` : '';
-  return `<div class="catalog-detail"><span class="catmat-code">${esc(group.catmat.codigoItem)}</span><small>${esc(group.catmat.nomePdm || group.catmat.descricaoItem)}</small>${alternatives}</div>`;
+  return `<div class="catalog-detail"><span class="catmat-code">${esc(group.catmat.codigoItem)}</span><small>${esc(group.catmat.nomePdm || group.catmat.descricaoItem)}</small>${reason}${alternatives}</div>`;
 }
 
 function renderResults() {
