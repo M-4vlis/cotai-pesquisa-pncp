@@ -780,6 +780,30 @@ export default {
       const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
       return new Response(bytes, { headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400' } });
     }
+    if (url.pathname === '/api/debug-score') {
+      const query = (url.searchParams.get('q') || '').trim();
+      const code = Number(url.searchParams.get('code'));
+      const payload = await fetchJson(`${comprasBase}/modulo-material/4_consultarItemMaterial?pagina=1&tamanhoPagina=10&codigoItem=${code}`, { retries: 2 });
+      const item = (payload.resultado || [])[0];
+      if (!item) return json({ message: 'item_not_found' }, 404);
+      const description = `${item.nomePdm || ''} ${item.descricaoItem || ''}`;
+      return json({
+        description,
+        concepts: matchedConcepts(query).map((concept) => concept.id),
+        queryTokens: baseTokens(query),
+        candidateTokens: baseTokens(description),
+        lexical: similarity(query, description),
+        object: lateInteractionScore(anchorTokens(query).slice(0, 5).join(' '), description),
+        identity: objectIdentityScore(query, description),
+        specifications: specificationCompatibility(query, description),
+        identifiers: identifierCompatibility(query, description),
+        categoricalMaterial: categoricalConflict(query, description, materialTokens),
+        categoricalColor: categoricalConflict(query, description, colorTokens),
+        exclusive: exclusiveAttributeConflicts(query, description),
+        accessory: accessoryPenalty(query, description),
+        penalty: constraintPenalty(query, description),
+      });
+    }
     if (url.pathname === '/api/catmat') {
       const query = (url.searchParams.get('q') || '').trim();
       if (query.length < 3) return json({ message: 'A descrição do item é muito curta para identificar o CATMAT.' }, 400);
