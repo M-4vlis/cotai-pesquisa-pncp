@@ -872,7 +872,7 @@ function candidatePool(candidates) {
 async function resolvePrices({ query, unit, candidates, start, end, limit, minScore }) {
   const pool = candidatePool(candidates);
   if (!pool.length) return { selected: null, alternatives: [], items: [], evaluations: [], message: 'Nenhum CATMAT compatível foi localizado.' };
-  const evaluations = await mapConcurrent(pool, 1, async (candidate) => {
+  const evaluateCandidate = async (candidate) => {
     try {
       const items = await searchPrices({
         query,
@@ -892,7 +892,13 @@ async function resolvePrices({ query, unit, candidates, start, end, limit, minSc
     } catch {
       return { candidate, items: [], bestPriceScore: 0, coverage: 0, resolutionScore: Math.round((Number(candidate.score) || 0) * 0.58), error: 'Consulta temporariamente indisponível' };
     }
-  });
+  };
+  const evaluations = await mapConcurrent(pool, 1, evaluateCandidate);
+  const retryIndexes = evaluations.map((evaluation, index) => (evaluation.error ? index : -1)).filter((index) => index >= 0).slice(0, 2);
+  if (retryIndexes.length) {
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    for (const index of retryIndexes) evaluations[index] = await evaluateCandidate(pool[index]);
+  }
   const topSemanticScore = Math.max(...evaluations.map((evaluation) => Number(evaluation.candidate.score) || 0));
   const withEvidence = evaluations.filter((evaluation) => evaluation.items.length
       && (Number(evaluation.candidate.score) || 0) >= Math.max(38, topSemanticScore - 14))
