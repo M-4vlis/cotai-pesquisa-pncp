@@ -138,6 +138,22 @@ async function postApi(path, payload) {
   return body;
 }
 
+async function findCatmatWithRetry(description) {
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const catalog = await api('/api/catmat', { q: description, limit: 8 });
+      if (catalog.items?.length || attempt === 1) return catalog;
+    } catch (error) {
+      lastError = error;
+      if (attempt === 1) throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 650));
+  }
+  if (lastError) throw lastError;
+  return { items: [] };
+}
+
 function setProgress(current, total) {
   $('progressWrap').classList.remove('hidden');
   $('progressWrap').setAttribute('aria-hidden', 'false');
@@ -175,7 +191,7 @@ async function search() {
     status('Etapa 1 de 2: identificando os CATMAT com busca híbrida e validação das especificações…');
     await mapLimit(state.items, 1, async (item, index) => {
       try {
-        const catalog = await api('/api/catmat', { q: item.descricao, limit: 8 });
+        const catalog = await findCatmatWithRetry(item.descricao);
         item.catmatSuggestions = catalog.items || [];
         item.catmat = item.catmatSuggestions[0] || null;
         item.catalogError = item.catmat ? '' : 'Nenhum CATMAT semanticamente compatível foi localizado.';

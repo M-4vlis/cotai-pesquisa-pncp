@@ -17,7 +17,7 @@ function json(body, status = 200) {
 const aliasGroups = [
   ['caneta', 'esferografica'], ['notebook', 'laptop', 'microcomputador'], ['celular', 'smartphone', 'telefone'],
   ['refrigerador', 'geladeira'], ['alcool', 'etanol'], ['toner', 'cartucho'], ['pendrive', 'pen', 'drive'],
-  ['arcondicionado', 'condicionador'], ['sanitario', 'sanitaria', 'hidraulica'], ['pne', 'acessibilidade'],
+  ['arcondicionado', 'condicionador'], ['sanitario', 'sanitaria', 'hidraulica'], ['pne', 'acessibilidade', 'acessivel'],
   ['contra', 'sede'], ['refil', 'elemento', 'filtrante'], ['sulfite', 'papel', 'impressao'],
   ['lampada', 'bulbo'], ['copo', 'recipiente'], ['mascara', 'respirador'], ['mouse', 'apontador'],
   ['drywall', 'gesso', 'acartonado'], ['eletroduto', 'conduite'], ['cotovelo', 'joelho'],
@@ -376,6 +376,20 @@ function exclusiveAttributeConflicts(query, candidate) {
   }, 0);
 }
 
+function variantConflictPenalty(query, candidate) {
+  const plain = (value) => String(value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  const source = plain(query);
+  const target = plain(candidate);
+  let penalty = 0;
+  if (/\b(?:reducao|redutor|reduzido)\b/.test(target) && !/\b(?:reducao|redutor|reduzido)\b/.test(source)) penalty += 18;
+  if (/\bsem cabeca\b/.test(target) && !/\bsem cabeca\b/.test(source)) penalty += 28;
+  if (/\bsextavad[oa] intern[oa]\b/.test(target) && !/\bintern[oa]\b/.test(source)) penalty += 14;
+  if (/\brosca esquerda\b/.test(target) && !/\besquerda\b/.test(source)) penalty += 16;
+  if (/\buso naval\b/.test(target) && !/\bnaval\b/.test(source)) penalty += 6;
+  return penalty;
+}
+
 function constraintPenalty(query, candidate) {
   const specs = specificationCompatibility(query, candidate);
   const identifiers = identifierCompatibility(query, candidate);
@@ -383,7 +397,8 @@ function constraintPenalty(query, candidate) {
     + (categoricalConflict(query, candidate, colorTokens) * 12)
     + (categoricalConflict(query, candidate, materialTokens) * 14)
     + (exclusiveAttributeConflicts(query, candidate) * 22)
-    + accessoryPenalty(query, candidate);
+    + accessoryPenalty(query, candidate)
+    + variantConflictPenalty(query, candidate);
 }
 
 async function fetchJson(url, { timeout = 12000, retries = 1, ttl = 0 } = {}) {
@@ -876,7 +891,9 @@ async function resolvePrices({ query, unit, candidates, start, end, limit, minSc
       return { candidate, items: [], bestPriceScore: 0, coverage: 0, resolutionScore: Math.round((Number(candidate.score) || 0) * 0.58), error: 'Consulta temporariamente indisponível' };
     }
   });
-  const withEvidence = evaluations.filter((evaluation) => evaluation.items.length)
+  const topSemanticScore = Math.max(...evaluations.map((evaluation) => Number(evaluation.candidate.score) || 0));
+  const withEvidence = evaluations.filter((evaluation) => evaluation.items.length
+      && (Number(evaluation.candidate.score) || 0) >= Math.max(38, topSemanticScore - 14))
     .sort((a, b) => b.resolutionScore - a.resolutionScore || (Number(b.candidate.score) || 0) - (Number(a.candidate.score) || 0));
   const selectedEvaluation = withEvidence[0] || evaluations[0];
   const selected = selectedEvaluation.candidate;
