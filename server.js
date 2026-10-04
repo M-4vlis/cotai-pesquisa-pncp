@@ -413,7 +413,7 @@ async function searchCatmat(query, limit) {
   const firstPages = await mapConcurrent(pdms, 5, async (pdm) => ({ pdm, page: await fetchJson(
     `${comprasBase}/modulo-material/4_consultarItemMaterial?pagina=1&tamanhoPagina=500&codigoPdm=${pdm.codigoPdm}&statusItem=true`,
     { ttl: 86400000 },
-  ).catch(() => ({ resultado: [] })) })));
+  ).catch(() => ({ resultado: [] })) }));
   const overflowPages = await Promise.all(firstPages.slice(0, 4).flatMap(({ pdm, page }) => {
     const totalPages = Math.min(3, Number(page.totalPaginas) || 1);
     return Array.from({ length: Math.max(0, totalPages - 1) }, (_, index) => fetchJson(
