@@ -307,6 +307,9 @@ function preferredPdms(query) {
   if (has('valvula', 'descarga') && !valvePart) preferred.push(16403);
   if (tokens.has('papel') && (tokens.has('a4') || has('210', '297'))) preferred.push(19746);
   if (has('caneta', 'esferografica')) preferred.push(99);
+  if (tokens.has('alcool') && (tokens.has('etilico') || tokens.has('70'))) preferred.push(2259);
+  if (tokens.has('cafe')) preferred.push(911);
+  if (tokens.has('arcondicionado')) preferred.push(13768);
   return preferred;
 }
 
@@ -360,9 +363,11 @@ function rankPdms(query, items) {
 
 function queryVariants(query) {
   const cleaned = baseTokens(query).join(' ').slice(0, 180);
+  const raw = String(query).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180);
   const anchors = anchorTokens(query).slice(0, 7);
   const expanded = [...new Set(anchors.flatMap((token) => [token, ...(aliases[token] || [])]))].slice(0, 8).join(' ');
-  return [...new Set([anchors.slice(0, 3).join(' '), anchors.join(' '), expanded, cleaned].filter((term) => term.length >= 2))].slice(0, 4);
+  return [...new Set([anchors.slice(0, 3).join(' '), anchors.join(' '), expanded, raw, cleaned].filter((term) => term.length >= 2))].slice(0, 5);
 }
 
 async function officialPdmLists(query) {
