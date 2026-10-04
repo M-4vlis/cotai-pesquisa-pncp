@@ -1,6 +1,10 @@
 const html = "__COTAI_HTML__";
 const ogImageBase64 = "__COTAI_OG_BASE64__";
 const memoryCache = new Map();
+const inflightRequests = new Map();
+const upstreamWaiters = [];
+let activeUpstreamRequests = 0;
+const maxUpstreamRequests = 3;
 
 const upstreamHeaders = {
   accept: 'application/json',
@@ -403,35 +407,109 @@ function constraintPenalty(query, candidate) {
     + variantConflictPenalty(query, candidate);
 }
 
-async function fetchJson(url, { timeout = 12000, retries = 1, ttl = 0 } = {}) {
+async function withUpstreamPermit(callback) {
+  if (activeUpstreamRequests >= maxUpstreamRequests) {
+    await new Promise((resolve) => upstreamWaiters.push(resolve));
+  } else activeUpstreamRequests += 1;
+  try {
+    return await callback();
+  } finally {
+    const next = upstreamWaiters.shift();
+    if (next) next();
+    else activeUpstreamRequests -= 1;
+  }
+}
+
+async function readPersistentCache(url) {
+  if (!globalThis.caches?.default) return undefined;
+  try {
+    const response = await globalThis.caches.default.match(url);
+    return response ? await response.json() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function writePersistentCache(url, value, ttl) {
+  if (!globalThis.caches?.default || !ttl) return;
+  try {
+    await globalThis.caches.default.put(url, new Response(JSON.stringify(value), {
+      headers: { 'content-type': 'application/json', 'cache-control': `public, max-age=${Math.max(1, Math.floor(ttl / 1000))}` },
+    }));
+  } catch { /* O cache local em memória continua disponível quando o cache de borda não aceita a chave. */ }
+}
+
+function retryDelay(error, attempt) {
+  if (Number(error?.retryAfterMs) > 0) return Math.min(10000, Number(error.retryAfterMs));
+  const base = Math.min(6000, 450 * (2 ** attempt));
+  return base + Math.floor(Math.random() * 350);
+}
+
+function canRetry(error) {
+  const status = Number(error?.status) || 0;
+  return !status || [408, 425, 429, 500, 502, 503, 504].includes(status) || error?.name === 'AbortError';
+}
+
+async function fetchJsonUncached(url, { timeout, retries, ttl }) {
+  if (ttl) {
+    const persistent = await readPersistentCache(url);
+    if (persistent !== undefined) {
+      memoryCache.set(url, { value: persistent, expires: Date.now() + ttl });
+      return persistent;
+    }
+  }
   const cached = memoryCache.get(url);
   if (cached && cached.expires > Date.now()) return cached.value;
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
     try {
-      const response = await fetch(url, { headers: upstreamHeaders, signal: controller.signal });
-      const type = response.headers.get('content-type') || '';
-      if (!response.ok || !type.includes('json')) throw new Error(`upstream_${response.status}`);
-      let value = await response.json();
-      if (typeof value === 'string' && /^[\[{]/.test(value.trim())) {
-        try { value = JSON.parse(value); } catch { /* Mantém a resposta original se não for JSON duplamente codificado. */ }
+      const value = await withUpstreamPermit(async () => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeout);
+        try {
+          const response = await fetch(url, { headers: upstreamHeaders, signal: controller.signal });
+          const type = response.headers.get('content-type') || '';
+          if (!response.ok || !type.includes('json')) {
+            const error = new Error(`upstream_${response.status}`);
+            error.status = response.status;
+            const retryAfter = response.headers.get('retry-after');
+            if (retryAfter && /^\d+$/.test(retryAfter)) error.retryAfterMs = Number(retryAfter) * 1000;
+            throw error;
+          }
+          let body = await response.json();
+          if (typeof body === 'string' && /^[\[{]/.test(body.trim())) {
+            try { body = JSON.parse(body); } catch { /* Mantém a resposta original se não for JSON duplamente codificado. */ }
+          }
+          return body;
+        } finally {
+          clearTimeout(timer);
+        }
+      });
+      if (ttl) {
+        memoryCache.set(url, { value, expires: Date.now() + ttl });
+        await writePersistentCache(url, value, ttl);
       }
-      if (ttl) memoryCache.set(url, { value, expires: Date.now() + ttl });
       return value;
     } catch (error) {
       lastError = error;
-      if (attempt < retries) {
-        const rateLimited = /upstream_(429|503)/.test(String(error?.message || error));
-        const delay = (rateLimited ? 800 : 350) * (attempt + 1);
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
-    } finally {
-      clearTimeout(timer);
+      if (attempt < retries && canRetry(error)) await new Promise((resolve) => setTimeout(resolve, retryDelay(error, attempt)));
+      else break;
     }
   }
   throw lastError;
+}
+
+async function fetchJson(url, { timeout = 12000, retries = 1, ttl = 0 } = {}) {
+  const cached = memoryCache.get(url);
+  if (cached && cached.expires > Date.now()) return cached.value;
+  if (inflightRequests.has(url)) return inflightRequests.get(url);
+  const pending = fetchJsonUncached(url, { timeout, retries, ttl });
+  inflightRequests.set(url, pending);
+  try {
+    return await pending;
+  } finally {
+    inflightRequests.delete(url);
+  }
 }
 
 async function mapConcurrent(items, limit, callback) {
@@ -738,7 +816,23 @@ async function fetchItemResults(item) {
   }
 }
 
+function buildPncpReference(controlValue, itemNumber) {
+  const control = String(controlValue || '');
+  const match = control.match(/^([a-z0-9]{14})-1-(\d+)\/(\d{4})$/i);
+  if (!match) return null;
+  return {
+    numeroItemPncp: Number(itemNumber),
+    numeroControlePncp: control,
+    link: `${pncpBase}/app/editais/${match[1]}/${match[3]}/${Number(match[2])}`,
+  };
+}
+
 async function pncpReference(item) {
+  const direct = buildPncpReference(
+    item.numeroControlePNCPCompra || item.idContratacaoPNCP,
+    item.numeroItemPncp || item.numeroItemCompra,
+  );
+  if (direct) return direct;
   const params = new URLSearchParams({
     tipo: 'idCompra',
     codigo: String(item.idCompra),
@@ -746,19 +840,15 @@ async function pncpReference(item) {
   });
   const payload = await fetchJson(
     `${comprasBase}/modulo-contratacoes/2.1_consultarItensContratacoes_PNCP_14133_Id?${params}`,
-    { timeout: 15000, retries: 2, ttl: 3600000 },
+    { timeout: 15000, retries: 3, ttl: 86400000 },
   );
   const records = payload.resultado || [];
   const record = records.find((entry) => String(entry.idCompraItem) === String(item.idCompraItem)) || records[0];
   if (!record) return null;
-  const control = String(record.numeroControlePNCPCompra || record.idContratacaoPNCP || '');
-  const match = control.match(/^([a-z0-9]{14})-1-(\d+)\/(\d{4})$/i);
-  if (!match) return null;
-  return {
-    numeroItemPncp: Number(record.numeroItemPncp || item.numeroItemCompra),
-    numeroControlePncp: control,
-    link: `${pncpBase}/app/editais/${match[1]}/${match[3]}/${Number(match[2])}`,
-  };
+  return buildPncpReference(
+    record.numeroControlePNCPCompra || record.idContratacaoPNCP,
+    record.numeroItemPncp || item.numeroItemCompra,
+  );
 }
 
 function unitCompatibility(requested, offered) {
@@ -796,12 +886,21 @@ function materialSimilarity(query, catmatDescription, candidate, requestedUnit, 
 }
 
 async function searchPrices({ query, unit, catmat, catmatDescription, catmatScore = 0, start, end, limit, minScore }) {
-  const params = new URLSearchParams({
-    pagina: '1', tamanhoPagina: '500', tipo: 'codigoItemCatalogo', codigo: catmat,
-    dataResultado: 'true', dataCompraInicio: start, dataCompraFim: end,
-  });
-  const sourceUrl = `${comprasBase}/modulo-pesquisa-preco/1_consultarMaterial?${params}`;
-  const payload = await fetchJson(sourceUrl, { timeout: 18000, retries: 2, ttl: 900000 });
+  let payload;
+  let lastError;
+  for (const pageSize of [200, 50]) {
+    const params = new URLSearchParams({
+      pagina: '1', tamanhoPagina: String(pageSize), tipo: 'codigoItemCatalogo', codigo: catmat,
+      dataResultado: 'true', dataCompraInicio: start, dataCompraFim: end,
+    });
+    try {
+      payload = await fetchJson(`${comprasBase}/modulo-pesquisa-preco/1_consultarMaterial?${params}`, { timeout: 18000, retries: 3, ttl: 900000 });
+      break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (!payload) throw lastError;
   const seenPrices = new Set();
   const ranked = (payload.resultado || []).map((item) => {
     const description = item.descricaoDetalhadaItem || item.descricaoItem || catmatDescription;
@@ -833,19 +932,24 @@ async function searchPrices({ query, unit, catmat, catmatDescription, catmatScor
     return item.valor > 0 && item.score >= minScore;
   })
     .sort((a, b) => b.score - a.score || a.valor - b.valor)
-    .slice(0, Math.max(limit * 6, 30));
+    .slice(0, Math.max(limit * 5, 24));
 
-  const enriched = await mapConcurrent(ranked, 5, async (item) => {
-    try {
-      const reference = await pncpReference(item._source);
-      if (!reference) return null;
-      const { _source, ...result } = item;
-      return { ...result, ...reference };
-    } catch {
-      return null;
-    }
-  });
-  return enriched.filter(Boolean).slice(0, limit);
+  const enriched = [];
+  const batchSize = Math.max(4, Math.min(8, limit * 2));
+  for (let offset = 0; offset < ranked.length && enriched.length < limit; offset += batchSize) {
+    const batch = await mapConcurrent(ranked.slice(offset, offset + batchSize), 2, async (item) => {
+      try {
+        const reference = await pncpReference(item._source);
+        if (!reference) return null;
+        const { _source, ...result } = item;
+        return { ...result, ...reference };
+      } catch {
+        return null;
+      }
+    });
+    enriched.push(...batch.filter(Boolean));
+  }
+  return enriched.slice(0, limit);
 }
 
 function candidatePool(candidates) {

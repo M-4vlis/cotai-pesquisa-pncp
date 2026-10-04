@@ -138,6 +138,19 @@ async function postApi(path, payload) {
   return body;
 }
 
+async function withRetries(callback, attempts = 2) {
+  let lastError;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await callback();
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 1000 * (2 ** attempt)));
+    }
+  }
+  throw lastError;
+}
+
 async function findCatmatWithRetry(description) {
   let lastError;
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -213,7 +226,7 @@ async function search() {
     status(`Etapa 2 de 2: validando até quatro CATMAT por item com preços reais do PNCP…`);
     const priceGroups = await mapLimit(classified, 2, async (item, index) => {
       try {
-        const resolution = await postApi('/api/resolve-prices', {
+        const resolution = await withRetries(() => postApi('/api/resolve-prices', {
           query: item.descricao,
           unit: item.unidade || '',
           candidates: item.catmatSuggestions,
@@ -221,7 +234,7 @@ async function search() {
           end: period.end,
           limit: $('resultCount').value,
           minScore: $('minScore').value,
-        });
+        }), 2);
         item.catmat = resolution.selected || item.catmat;
         return {
           item,
@@ -231,9 +244,10 @@ async function search() {
           message: resolution.message || '',
           testedCatmats: resolution.testedCatmats || 1,
           evaluations: resolution.evaluations || [],
+          candidates: item.catmatSuggestions,
         };
       } catch (error) {
-        return { item, catmat: item.catmat, alternatives: item.catmatSuggestions.slice(1), found: [], message: error.message };
+        return { item, catmat: item.catmat, alternatives: item.catmatSuggestions.slice(1), candidates: item.catmatSuggestions, found: [], message: error.message };
       } finally {
         completedSteps += 1;
         setProgress(completedSteps, totalSteps);
@@ -243,7 +257,7 @@ async function search() {
 
     const byDescription = new Map(priceGroups.map((group) => [group.item.descricao, group]));
     state.results = state.items.map((item) => byDescription.get(item.descricao) || {
-      item, catmat: null, alternatives: [], found: [], message: item.catalogError || 'CATMAT não identificado com segurança.',
+      item, catmat: null, alternatives: [], candidates: item.catmatSuggestions || [], found: [], message: item.catalogError || 'CATMAT não identificado com segurança.',
     });
     setProgress(totalSteps, totalSteps);
     await save();
@@ -274,12 +288,69 @@ function formatDate(value) {
   return value ? new Date(`${String(value).slice(0, 10)}T12:00:00`).toLocaleDateString('pt-BR') : '—';
 }
 
-function catalogCell(group) {
+function groupCandidates(group) {
+  const unique = new Map();
+  [group.catmat, ...(group.candidates || []), ...(group.alternatives || [])].filter(Boolean)
+    .forEach((candidate) => unique.set(String(candidate.codigoItem), candidate));
+  return [...unique.values()];
+}
+
+function catalogCell(group, groupIndex, allowChoice = true) {
   if (!group.catmat) return '<span class="pending-chip">Não identificado</span>';
   const reason = group.catmat.selectionReason ? `<span class="selection-reason">${esc(group.catmat.selectionReason)}</span>` : '';
-  const alternatives = group.alternatives?.length
-    ? `<details><summary>Outras sugestões</summary>${group.alternatives.map((item) => `<div>${esc(item.codigoItem)} · ${esc(item.nomePdm || item.descricaoItem)} (${item.score}%)</div>`).join('')}</details>` : '';
-  return `<div class="catalog-detail"><span class="catmat-code">${esc(group.catmat.codigoItem)}</span><small>${esc(group.catmat.nomePdm || group.catmat.descricaoItem)}</small>${reason}${alternatives}</div>`;
+  const alternatives = groupCandidates(group).filter((candidate) => String(candidate.codigoItem) !== String(group.catmat.codigoItem));
+  const choices = allowChoice && alternatives.length
+    ? `<details class="catmat-choices"><summary>Escolher outro CATMAT</summary><div class="catmat-options">${alternatives.map((item) => `<button type="button" class="catmat-option" data-group="${groupIndex}" data-code="${esc(item.codigoItem)}" ${group.loading ? 'disabled' : ''}><strong>${esc(item.codigoItem)} · ${esc(item.nomePdm || 'CATMAT')}</strong><span>${esc(item.descricaoItem || item.nomePdm)}</span><em>${esc(item.score)}% · Pesquisar preços</em></button>`).join('')}</div></details>` : '';
+  const refresh = allowChoice ? `<button type="button" class="catmat-refresh" data-group="${groupIndex}" data-code="${esc(group.catmat.codigoItem)}" ${group.loading ? 'disabled' : ''}>↻ ${group.loading ? 'Buscando preços…' : 'Consultar este CATMAT'}</button>` : '';
+  return `<div class="catalog-detail"><span class="catmat-code">${esc(group.catmat.codigoItem)}</span><small>${esc(group.catmat.descricaoItem || group.catmat.nomePdm)}</small>${reason}${choices}${refresh}</div>`;
+}
+
+async function chooseCatmat(groupIndex, code) {
+  const group = state.results[groupIndex];
+  if (!group || group.loading) return;
+  const candidates = groupCandidates(group);
+  const candidate = candidates.find((item) => String(item.codigoItem) === String(code));
+  if (!candidate) return status('O CATMAT escolhido não está mais disponível nesta pesquisa.', true);
+  let period;
+  try { period = getPeriod(); } catch (error) { return status(error.message, true); }
+
+  group.loading = true;
+  group.candidates = candidates;
+  group.catmat = { ...candidate, selectionReason: 'Selecionado manualmente pelo usuário' };
+  group.item.catmat = group.catmat;
+  group.alternatives = candidates.filter((item) => String(item.codigoItem) !== String(candidate.codigoItem));
+  group.found = [];
+  group.message = 'Consultando preços para o CATMAT escolhido…';
+  renderItems();
+  renderResults();
+  status(`Consultando o CATMAT ${candidate.codigoItem} no PNCP…`);
+
+  try {
+    const prices = await withRetries(() => api('/api/prices', {
+      q: group.item.descricao,
+      unit: group.item.unidade || '',
+      catmat: candidate.codigoItem,
+      catmatDescription: candidate.descricaoItem || candidate.nomePdm || '',
+      catmatScore: candidate.score || 0,
+      start: period.start,
+      end: period.end,
+      limit: $('resultCount').value,
+      minScore: $('minScore').value,
+    }), 2);
+    group.found = prices.items || [];
+    group.message = prices.message || '';
+    status(group.found.length
+      ? `${group.found.length} preço(s) encontrado(s) para o CATMAT ${candidate.codigoItem}.`
+      : (group.message || `Nenhum preço localizado para o CATMAT ${candidate.codigoItem}.`));
+  } catch (error) {
+    group.found = [];
+    group.message = `${error.message} Use “Consultar este CATMAT” para tentar novamente.`;
+    status(group.message, true);
+  } finally {
+    group.loading = false;
+    await save();
+    renderResults();
+  }
 }
 
 function renderResults() {
@@ -299,12 +370,12 @@ function renderResults() {
   const rows = [];
   state.results.forEach((group, groupIndex) => {
     if (!group.found?.length) {
-      rows.push(`<tr class="empty-row"><td data-label="Item">${groupIndex + 1}</td><td data-label="Material" class="item-name">${esc(group.item.descricao)}</td><td data-label="Similaridade">—</td><td data-label="CATMAT">${catalogCell(group)}</td><td data-label="Resultado" colspan="4">${esc(group.message || 'Nenhum preço comparável atingiu os critérios definidos.')}</td></tr>`);
+      rows.push(`<tr class="empty-row"><td data-label="Item">${groupIndex + 1}</td><td data-label="Material" class="item-name">${esc(group.item.descricao)}</td><td data-label="Similaridade">—</td><td data-label="CATMAT">${catalogCell(group, groupIndex)}</td><td data-label="Resultado" colspan="4">${esc(group.message || 'Nenhum preço comparável atingiu os critérios definidos.')}</td></tr>`);
       return;
     }
     group.found.forEach((result, resultIndex) => {
       const reasons = result.matchReasons?.length ? result.matchReasons.join(' · ') : 'Comparação por descrição e especificações';
-      rows.push(`<tr><td data-label="Item">${groupIndex + 1}.${resultIndex + 1}</td><td data-label="Material" class="item-name">${esc(group.item.descricao)}<small>${esc(reasons)}</small></td><td data-label="Similaridade"><span class="match-pill ${scoreClass(result.score)}">${result.score}%</span></td><td data-label="CATMAT">${catalogCell(group)}</td><td data-label="Preço / PNCP" class="price-cell"><strong>${money(result.valor)}</strong><small>Item ${esc(result.numeroItemPncp || '—')} · ${esc(result.descricao)}</small></td><td data-label="Unidade">${esc(result.unidade || '—')}</td><td data-label="Órgão / data" class="agency-date">${esc(result.orgao || '—')}<small>${formatDate(result.data)} · <span class="type-pill">${esc(result.tipo || 'Registro')}</span></small></td><td data-label="Fonte"><a class="official-link" href="${esc(result.link)}" target="_blank" rel="noopener">↗ Abrir compra</a></td></tr>`);
+      rows.push(`<tr><td data-label="Item">${groupIndex + 1}.${resultIndex + 1}</td><td data-label="Material" class="item-name">${esc(group.item.descricao)}<small>${esc(reasons)}</small></td><td data-label="Similaridade"><span class="match-pill ${scoreClass(result.score)}">${result.score}%</span></td><td data-label="CATMAT">${catalogCell(group, groupIndex, resultIndex === 0)}</td><td data-label="Preço / PNCP" class="price-cell"><strong>${money(result.valor)}</strong><small>Item ${esc(result.numeroItemPncp || '—')} · ${esc(result.descricao)}</small></td><td data-label="Unidade">${esc(result.unidade || '—')}</td><td data-label="Órgão / data" class="agency-date">${esc(result.orgao || '—')}<small>${formatDate(result.data)} · <span class="type-pill">${esc(result.tipo || 'Registro')}</span></small></td><td data-label="Fonte"><a class="official-link" href="${esc(result.link)}" target="_blank" rel="noopener">↗ Abrir compra</a></td></tr>`);
     });
   });
   body.innerHTML = rows.join('');
@@ -367,6 +438,10 @@ fields.forEach((id) => $(id).addEventListener('change', () => { updateControls()
 $('resultCount').addEventListener('input', updateControls);
 $('minScore').addEventListener('input', updateControls);
 $('globalSearch').addEventListener('input', filterRows);
+$('resultsTableBody').addEventListener('click', (event) => {
+  const button = event.target.closest('.catmat-option, .catmat-refresh');
+  if (button) chooseCatmat(Number(button.dataset.group), button.dataset.code);
+});
 document.addEventListener('keydown', (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); $('globalSearch').focus(); }
 });
