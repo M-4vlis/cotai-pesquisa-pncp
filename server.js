@@ -38,12 +38,19 @@ const unitDefinitions = {
   ml: ['ml', 'mililitro', 'mililitros'], l: ['l', 'lt', 'litro', 'litros'], g: ['g', 'gr', 'grama', 'gramas'],
   kg: ['kg', 'quilo', 'quilos', 'quilograma', 'quilogramas'], w: ['w', 'watt', 'watts'], v: ['v', 'volt', 'volts'],
   a: ['a', 'ampere', 'amperes'], hz: ['hz'], kva: ['kva'], cv: ['cv'], bar: ['bar'], psi: ['psi'],
+  deg: ['gra', 'grau', 'graus'],
   ah: ['ah', 'amperehora'], mah: ['mah'], gb: ['gb', 'gigabyte', 'gigabytes'], tb: ['tb', 'terabyte', 'terabytes'],
   pol: ['pol', 'polegada', 'polegadas'], mlm: ['milmicra'],
   un: ['un', 'und', 'unidade', 'unidades'], cx: ['cx', 'caixa', 'caixas'], pct: ['pct', 'pacote', 'pacotes'],
   fr: ['fr', 'frasco', 'frascos'], rl: ['rl', 'rolo', 'rolos'], par: ['par', 'pares'], resma: ['resma', 'resmas'],
 };
 const unitLookup = Object.fromEntries(Object.entries(unitDefinitions).flatMap(([unit, values]) => values.map((value) => [value, unit])));
+const exclusiveAttributeGroups = [
+  ['unipolar', 'monopolar', 'bipolar', 'tripolar', 'tetrapolar'],
+  ['monofasico', 'bifasico', 'trifasico'],
+  ['aci', 'acii', 'aciii'],
+  ['fosco', 'semibrilho', 'brilhante'],
+];
 
 const domainConcepts = [
   { id: 'cimento-portland', patterns: [['cimento', 'portland'], ['cimento', 'cp']], terms: ['cimento portland', 'cimento'], pdms: [867], groups: [56], objects: ['cimento'] },
@@ -78,8 +85,10 @@ function baseTokens(value = '') {
     .replace(/pen\s*-?\s*drive/g, 'pendrive')
     .replace(/ampere\s*-?\s*hora/g, 'amperehora')
     .replace(/\bcp\s*([ivx]+)\s*-?\s*([a-z])?\s*-?\s*(\d{2})\b/g, (_, roman, kind, strength) => `cp${roman}${kind || ''}${strength}`)
+    .replace(/\bac\s*-?\s*(iii|ii|i)\b/g, 'ac$1')
     .replace(/\b(\d{1,2})\s*w\s*-?\s*(\d{1,2})\b/g, '$1w$2')
     .replace(/\be\s*-?\s*(\d{4})\b/g, 'e$1')
+    .replace(/\b([a-z])\s*-\s*(\d{1,4})\b/g, '$1$2')
     .replace(/(\d+)\s*[.,\s]\s*(\d+)\s*\/\s*(\d+)/g, '$1_$2_$3')
     .replace(/(\d+)\s*\/\s*(\d+)/g, '$1_$2');
   return prepared.replace(/[^a-z0-9_ ]/g, ' ').split(/\s+/)
@@ -121,7 +130,7 @@ function objectIdentityScore(query, candidate) {
 
 function accessoryPenalty(query, candidate) {
   const source = new Set(baseTokens(query));
-  const target = new Set(baseTokens(candidate));
+  const target = new Set(baseTokens(String(candidate).split(',')[0]));
   const unexpected = [...target].filter((token) => accessoryTokens.has(token) && !source.has(token));
   if (!unexpected.length) return 0;
   const identity = objectIdentityScore(query, candidate);
@@ -271,6 +280,7 @@ function unitFamily(unit) {
   if (['ml', 'l'].includes(unit)) return 'volume';
   if (['g', 'kg'].includes(unit)) return 'mass';
   if (['gb', 'tb'].includes(unit)) return 'storage';
+  if (unit === 'deg') return 'angle';
   return unit;
 }
 
@@ -282,6 +292,7 @@ function normalizedMeasure(value, unit) {
 
 function extractMeasures(value = '') {
   const normalized = String(value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/°/g, ' grau ')
     .replace(/(\d)\s*,\s*(\d)/g, '$1.$2');
   const unitPattern = Object.keys(unitLookup).sort((a, b) => b.length - a.length).join('|');
   const expression = new RegExp(`(\\d+(?:\\.\\d+)?)\\s*(${unitPattern})(?![a-z])`, 'gi');
@@ -303,8 +314,10 @@ function specificationCompatibility(query, candidate) {
     const comparable = offered.filter((item) => item.family === spec.family);
     if (!comparable.length) { points += 0.45; return; }
     const distance = Math.min(...comparable.map((item) => Math.abs(item.value - spec.value) / Math.max(1, Math.abs(spec.value))));
-    if (distance <= 0.025) { points += 1; matched += 1; }
-    else if (distance <= 0.12) { points += 0.7; matched += 1; }
+    if (distance <= 0.005) { points += 1; matched += 1; }
+    else if (distance <= 0.025) { points += 0.92; matched += 1; }
+    else if (distance <= 0.06) { points += 0.72; matched += 1; }
+    else if (distance <= 0.12) { points += 0.48; matched += 1; }
     else { conflicts += 1; }
   });
   return { score: Math.round((points / requested.length) * 100), conflicts, matched, total: requested.length };
@@ -317,12 +330,23 @@ function categoricalConflict(query, candidate, dictionary) {
   return [...source].some((token) => target.has(token)) ? 0 : 1;
 }
 
+function exclusiveAttributeConflicts(query, candidate) {
+  const source = new Set(baseTokens(query));
+  const target = new Set(baseTokens(candidate));
+  return exclusiveAttributeGroups.reduce((conflicts, group) => {
+    const requested = group.find((token) => source.has(token));
+    const offered = group.find((token) => target.has(token));
+    return conflicts + (requested && offered && requested !== offered ? 1 : 0);
+  }, 0);
+}
+
 function constraintPenalty(query, candidate) {
   const specs = specificationCompatibility(query, candidate);
   const identifiers = identifierCompatibility(query, candidate);
   return (specs.conflicts * 14) + (identifiers.conflicts * 18)
     + (categoricalConflict(query, candidate, colorTokens) * 12)
     + (categoricalConflict(query, candidate, materialTokens) * 14)
+    + (exclusiveAttributeConflicts(query, candidate) * 22)
     + accessoryPenalty(query, candidate);
 }
 
@@ -515,7 +539,7 @@ async function directPreferredPdms(query) {
   const codes = preferredPdms(query);
   const pages = await Promise.all(codes.map((codigoPdm) => fetchJson(
     `${comprasBase}/modulo-material/3_consultarPdmMaterial?pagina=1&tamanhoPagina=20&codigoPdm=${codigoPdm}`,
-    { ttl: 86400000 },
+    { timeout: 18000, retries: 2, ttl: 86400000 },
   ).catch(() => ({ resultado: [] }))));
   return pages.flatMap((page) => page.resultado || []);
 }
@@ -547,10 +571,19 @@ async function searchCatmat(query, limit) {
   pdms = pdms.slice(0, 14);
   if (!pdms.length) return [];
 
-  const firstPages = await mapConcurrent(pdms, 5, async (pdm) => ({ pdm, page: await fetchJson(
-    `${comprasBase}/modulo-material/4_consultarItemMaterial?pagina=1&tamanhoPagina=500&codigoPdm=${pdm.codigoPdm}&statusItem=true`,
-    { ttl: 86400000 },
-  ).catch(() => ({ resultado: [] })) }));
+  const firstPages = await mapConcurrent(pdms, 5, async (pdm) => {
+    const itemUrl = `${comprasBase}/modulo-material/4_consultarItemMaterial?pagina=1&tamanhoPagina=500&codigoPdm=${pdm.codigoPdm}&statusItem=true`;
+    let page;
+    try {
+      page = await fetchJson(itemUrl, { timeout: 18000, retries: 2, ttl: 86400000 });
+    } catch {
+      if (pdm._preferred) {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        page = await fetchJson(itemUrl, { timeout: 20000, retries: 2, ttl: 86400000 }).catch(() => ({ resultado: [] }));
+      } else page = { resultado: [] };
+    }
+    return { pdm, page };
+  });
   const overflowRequests = firstPages.flatMap(({ pdm, page }, pdmIndex) => {
     const pageLimit = pdm._preferred ? 8 : (pdmIndex < 5 ? 4 : (pdmIndex < 9 ? 2 : 1));
     const totalPages = Math.min(pageLimit, Number(page.totalPaginas) || 1);
