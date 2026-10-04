@@ -827,7 +827,7 @@ async function searchPrices({ query, unit, catmat, catmatDescription, catmatScor
     } catch {
       return null;
     }
-  }));
+  });
   return enriched.filter(Boolean).slice(0, limit);
 }
 
