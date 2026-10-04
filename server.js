@@ -87,7 +87,7 @@ function baseTokens(value = '') {
     .replace(/ampere\s*-?\s*hora/g, 'amperehora')
     .replace(/\bcp\s*([ivx]+)\s*-?\s*([a-z])?\s*-?\s*(\d{2})\b/g, (_, roman, kind, strength) => `cp${roman}${kind || ''}${strength}`)
     .replace(/\bac\s*-?\s*(iii|ii|i)\b/g, 'ac$1')
-    .replace(/\bcurva\s*[-:]?\s*([abc])\b/g, 'curva$1')
+    .replace(/\bcurva(?:\s+de)?(?:\s+disparo)?\s*[-:]?\s*([abc])\b/g, 'curva$1')
     .replace(/\b(\d{1,2})\s*w\s*-?\s*(\d{1,2})\b/g, '$1w$2')
     .replace(/\be\s*-?\s*(\d{4})\b/g, 'e$1')
     .replace(/\b([a-z])\s*-\s*(\d{1,4})\b/g, '$1$2')
