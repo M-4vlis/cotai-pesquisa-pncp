@@ -409,7 +409,7 @@ async function searchCatmat(query, limit) {
   const retrievalLists = [preferred.map((item) => ({ ...item, _preferredSource: true })), ...officialLists];
   let pdms = rankPdms(query, fusePdmLists(retrievalLists));
   if (pdms.length < 10 || (pdms[0]?._score || 0) < 66) {
-    const hierarchical = await hierarchicalPdms(query);
+    const hierarchical = await hierarchicalPdms(query).catch(() => []);
     pdms = rankPdms(query, fusePdmLists([...retrievalLists, hierarchical]));
   }
   pdms = pdms.slice(0, 14);
