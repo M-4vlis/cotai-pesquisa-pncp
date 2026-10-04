@@ -150,11 +150,12 @@ function preferredPdms(query) {
   const tokens = new Set(normalize(query));
   const has = (...values) => values.every((value) => tokens.has(value));
   const preferred = [];
+  const valvePart = ['canopla', 'botao', 'acabamento', 'kit', 'base', 'sede', 'reparo'].some((token) => tokens.has(token));
   if (tokens.has('canopla')) preferred.push(4429);
   if (has('botao', 'descarga')) preferred.push(3828);
   if (has('acabamento', 'valvula') || has('acabamento', 'descarga')) preferred.push(16221);
-  if (has('valvula', 'descarga')) preferred.push(16403);
   if ((tokens.has('kit') || tokens.has('base') || tokens.has('sede')) && tokens.has('valvula')) preferred.push(11649);
+  if (has('valvula', 'descarga') && !valvePart) preferred.push(16403);
   if (tokens.has('papel') && (tokens.has('a4') || has('210', '297'))) preferred.push(19746);
   if (has('caneta', 'esferografica')) preferred.push(99);
   return preferred;
@@ -192,9 +193,16 @@ function rankPdms(query, items) {
 async function officialPdms(query) {
   const cleaned = baseTokens(query).join(' ').slice(0, 180);
   if (cleaned.length < 2) return [];
-  const url = `${catalogoBase}/material/v1/palavra?palavra=${encodeURIComponent(cleaned)}&apenasAtivos=nao`;
-  const payload = await fetchJson(url, { timeout: 18000, retries: 1, ttl: 86400000 });
-  return (Array.isArray(payload) ? payload : []).map((item) => ({ ...item, _official: true }));
+  const focused = baseTokens(query)
+    .filter((token) => !genericObjectTokens.has(token) && !lowValueTokens.has(token) && !/^\d/.test(token))
+    .slice(0, 7).join(' ');
+  const terms = [...new Set([focused, cleaned].filter((term) => term.length >= 2))];
+  const payloads = await Promise.all(terms.map((term) => fetchJson(
+    `${catalogoBase}/material/v1/palavra?palavra=${encodeURIComponent(term)}&apenasAtivos=nao`,
+    { timeout: 18000, retries: 1, ttl: 86400000 },
+  ).catch(() => [])));
+  return payloads.flatMap((payload) => (Array.isArray(payload) ? payload : []))
+    .map((item) => ({ ...item, _official: true }));
 }
 
 async function directPreferredPdms(query) {
