@@ -371,7 +371,11 @@ async function fetchJson(url, { timeout = 12000, retries = 1, ttl = 0 } = {}) {
       return value;
     } catch (error) {
       lastError = error;
-      if (attempt < retries) await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+      if (attempt < retries) {
+        const rateLimited = /upstream_(429|503)/.test(String(error?.message || error));
+        const delay = (rateLimited ? 800 : 350) * (attempt + 1);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
     } finally {
       clearTimeout(timer);
     }
@@ -528,8 +532,8 @@ function queryVariants(query) {
   ].filter((term) => term.length >= 2))].slice(0, 10);
 }
 
-async function officialPdmLists(query) {
-  const terms = queryVariants(query);
+async function officialPdmLists(query, maxTerms = 6) {
+  const terms = queryVariants(query).slice(0, maxTerms);
   const payloads = await Promise.all(terms.map((term) => fetchJson(
     `${catalogoBase}/material/v1/palavra?palavra=${encodeURIComponent(term)}&apenasAtivos=nao`,
     { timeout: 18000, retries: 1, ttl: 86400000 },
@@ -560,17 +564,24 @@ async function hierarchicalPdms(query) {
 }
 
 async function searchCatmat(query, limit) {
+  const concepts = matchedConcepts(query);
+  const hasKnownPdms = concepts.some((concept) => (concept.pdms || []).length);
   const [officialLists, preferred] = await Promise.all([
-    officialPdmLists(query).catch(() => []),
+    officialPdmLists(query, hasKnownPdms ? 2 : 6).catch(() => []),
     directPreferredPdms(query),
   ]);
   const retrievalLists = [preferred.map((item) => ({ ...item, _preferredSource: true })), ...officialLists];
   let pdms = rankPdms(query, fusePdmLists(retrievalLists));
-  if (pdms.length < 10 || (pdms[0]?._score || 0) < 66) {
+  const hasPreferredPdm = pdms.some((pdm) => pdm._preferred);
+  if ((!hasPreferredPdm && pdms.length < 8) || (pdms[0]?._score || 0) < 58) {
     const hierarchical = await hierarchicalPdms(query).catch(() => []);
     pdms = rankPdms(query, fusePdmLists([...retrievalLists, hierarchical]));
   }
-  pdms = pdms.slice(0, 14);
+  if (hasKnownPdms) {
+    const preferredPdmsRanked = pdms.filter((pdm) => pdm._preferred);
+    const complementaryPdms = pdms.filter((pdm) => !pdm._preferred).slice(0, Math.max(0, 6 - preferredPdmsRanked.length));
+    pdms = [...preferredPdmsRanked, ...complementaryPdms].slice(0, 6);
+  } else pdms = pdms.slice(0, 10);
   if (!pdms.length) return [];
 
   const firstPages = await mapConcurrent(pdms, 5, async (pdm) => {

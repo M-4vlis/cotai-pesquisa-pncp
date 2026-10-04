@@ -162,7 +162,7 @@ async function search() {
 
   try {
     status('Etapa 1 de 2: identificando os CATMAT com busca híbrida e validação das especificações…');
-    await mapLimit(state.items, 2, async (item, index) => {
+    await mapLimit(state.items, 1, async (item, index) => {
       try {
         const catalog = await api('/api/catmat', { q: item.descricao, limit: 5 });
         item.catmatSuggestions = catalog.items || [];
