@@ -6,7 +6,7 @@ await Promise.all([
   cp('index.html', 'dist/index.html'),
   cp('styles.css', 'dist/styles.css'),
   cp('app.js', 'dist/app.js'),
-  cp('public/og.png', 'dist/og.png'),
+  cp('public/og-v2.png', 'dist/og.png'),
   cp('.openai/hosting.json', 'dist/.openai/hosting.json'),
 ]);
 
@@ -15,7 +15,7 @@ const [page, styles, app, server, ogImage] = await Promise.all([
   readFile('styles.css', 'utf8'),
   readFile('app.js', 'utf8'),
   readFile('server.js', 'utf8'),
-  readFile('public/og.png'),
+  readFile('public/og-v2.png'),
 ]);
 
 const html = page

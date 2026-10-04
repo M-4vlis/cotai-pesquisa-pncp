@@ -27,10 +27,16 @@ async function load() {
     const hasOldEvidence = state.results.some((group) => group.found?.some((result) => !String(result.link || '').startsWith('https://pncp.gov.br/app/editais/')));
     if (hasOldEvidence) state.results = [];
     fields.forEach((id) => { if (state.settings?.[id] !== undefined) $(id).value = state.settings[id]; });
-    toggleCustomPeriod();
+    updateControls();
     renderItems();
     renderResults();
   };
+}
+
+function esc(value = '') {
+  const element = document.createElement('div');
+  element.textContent = String(value ?? '');
+  return element.innerHTML;
 }
 
 function persistSettings() {
@@ -38,30 +44,48 @@ function persistSettings() {
   save();
 }
 
-function esc(value = '') {
-  const element = document.createElement('div');
-  element.textContent = value;
-  return element.innerHTML;
+function updateControls() {
+  $('resultCountValue').textContent = $('resultCount').value;
+  $('minScoreValue').textContent = `${$('minScore').value}%`;
+  $('customPeriod').classList.toggle('hidden', $('periodPreset').value !== 'custom');
+  const minutes = Math.max(1, Math.ceil(state.items.length / 4));
+  $('timeEstimate').textContent = state.items.length ? `Aprox. ${minutes} a ${minutes + 1} minuto${minutes > 1 ? 's' : ''}` : 'Aprox. 1 a 2 minutos';
+}
+
+function setStage(active, complete = false) {
+  for (let index = 1; index <= 4; index += 1) {
+    const element = $(`process${index}`);
+    element.classList.toggle('done', index < active || (complete && index === active));
+    element.classList.toggle('active', !complete && index === active);
+  }
 }
 
 function renderItems() {
-  $('itemsBody').innerHTML = state.items.map((item) => {
-    const catmat = item.catmat ? `<span class="catmat-chip">${esc(String(item.catmat.codigoItem))}</span> ${esc(item.catmat.descricaoItem)}` : '<span class="pending-chip">Será identificado</span>';
-    return `<tr><td>${esc(item.descricao)}</td><td>${esc(item.unidade || '—')}</td><td>${esc(item.quantidade || '—')}</td><td class="catmat-cell">${catmat}</td></tr>`;
+  $('itemsBody').innerHTML = state.items.map((item, index) => {
+    const catmat = item.catmat
+      ? `<span class="catmat-chip">${esc(item.catmat.codigoItem)}</span>${esc(item.catmat.nomePdm || item.catmat.descricaoItem)}`
+      : `<span class="pending-chip">${item.catalogError ? 'Não identificado' : 'Aguardando busca'}</span>`;
+    return `<tr><td>${index + 1}</td><td>${esc(item.descricao)}</td><td>${esc(item.unidade || '—')}</td><td>${esc(item.quantidade || '—')}</td><td>${catmat}</td></tr>`;
   }).join('');
-  $('itemSummary').classList.toggle('hidden', state.items.length > 0);
   $('itemsWrap').classList.toggle('hidden', !state.items.length);
-  if (state.items.length) $('itemSummary').textContent = `${state.items.length} item(ns) mantido(s) neste navegador.`;
+  $('itemSummary').textContent = state.items.length ? `${state.items.length} item(ns) pronto(s) para pesquisa.` : 'Nenhum item importado.';
+  $('itemSummary').classList.toggle('success', state.items.length > 0);
+  if (state.items.length && !state.results.length) setStage(2);
+  updateControls();
+}
+
+function normalizeHeader(value = '') {
+  return String(value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
 }
 
 function parseRows(rows) {
   const keys = Object.keys(rows[0] || {});
-  const match = (...terms) => keys.find((key) => terms.includes(key.toLowerCase().trim()));
-  const description = match('descricao', 'descrição', 'item', 'produto');
-  const unit = match('unidade', 'unidade de fornecimento', 'und');
+  const match = (...terms) => keys.find((key) => terms.includes(normalizeHeader(key)));
+  const description = match('descricao', 'item', 'produto', 'material', 'objeto');
+  const unit = match('unidade', 'unidade de fornecimento', 'und', 'un');
   const quantity = match('quantidade', 'qtd', 'qtde');
-  if (!description) throw new Error('A planilha precisa de uma coluna “descricao” ou “descrição”.');
-  return rows.filter((row) => row[description]).map((row) => ({
+  if (!description) throw new Error('A planilha precisa de uma coluna “descrição”, “item”, “produto” ou “material”.');
+  return rows.filter((row) => String(row[description] || '').trim()).map((row) => ({
     descricao: String(row[description]).trim(),
     unidade: unit ? String(row[unit] || '').trim() : '',
     quantidade: quantity ? String(row[quantity] || '').trim() : '',
@@ -70,24 +94,17 @@ function parseRows(rows) {
 
 async function importFile(file) {
   try {
-    let rows;
-    if (file.name.toLowerCase().endsWith('.csv')) {
-      const text = await file.text();
-      const lines = text.split(/\r?\n/).filter(Boolean);
-      const separator = lines[0]?.includes(';') ? ';' : ',';
-      const headers = lines.shift().split(separator).map((value) => value.trim());
-      rows = lines.map((line) => Object.fromEntries(headers.map((header, index) => [header, line.split(separator)[index]?.trim()])));
-    } else {
-      const data = await file.arrayBuffer();
-      const workbook = XLSX.read(data);
-      rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: '' });
-    }
+    if (!window.XLSX) throw new Error('O leitor de planilhas ainda está carregando. Aguarde alguns segundos e tente novamente.');
+    const isCsv = file.name.toLowerCase().endsWith('.csv');
+    const content = isCsv ? await file.text() : await file.arrayBuffer();
+    const workbook = XLSX.read(content, { type: isCsv ? 'string' : 'array' });
+    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: '' });
     state.items = parseRows(rows);
     state.results = [];
     await save();
     renderItems();
     renderResults();
-    status(`${state.items.length} item(ns) importado(s). Clique em pesquisar para iniciar a classificação CATMAT.`);
+    status(`${state.items.length} item(ns) importado(s). Revise a leitura e inicie a pesquisa.`);
   } catch (error) {
     status(error.message || 'Não foi possível ler a planilha.', true);
   }
@@ -103,10 +120,6 @@ function getPeriod() {
   return { start: iso(start), end: iso(end) };
 }
 
-function toggleCustomPeriod() {
-  $('customPeriod').classList.toggle('hidden', $('periodPreset').value !== 'custom');
-}
-
 async function api(path, params) {
   const response = await fetch(`${path}?${new URLSearchParams(params)}`);
   const body = await response.json().catch(() => ({}));
@@ -117,77 +130,99 @@ async function api(path, params) {
 function setProgress(current, total) {
   $('progressWrap').classList.remove('hidden');
   $('progressWrap').setAttribute('aria-hidden', 'false');
-  $('progressBar').style.width = `${Math.max(3, Math.round((current / total) * 100))}%`;
+  $('progressBar').style.width = `${Math.max(3, Math.round((current / Math.max(1, total)) * 100))}%`;
+}
+
+async function mapLimit(list, concurrency, callback) {
+  const output = new Array(list.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(concurrency, list.length) }, async () => {
+    while (cursor < list.length) {
+      const index = cursor;
+      cursor += 1;
+      output[index] = await callback(list[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return output;
 }
 
 async function search() {
-  if (!state.items.length) return status('Importe uma planilha ou use o exemplo antes de pesquisar.', true);
+  if (!state.items.length) return status('Importe uma planilha ou use o modelo antes de pesquisar.', true);
   let period;
   try { period = getPeriod(); } catch (error) { return status(error.message, true); }
   persistSettings();
   $('searchButton').disabled = true;
-  $('searchButton').textContent = 'Pesquisando…';
+  $('searchButton').innerHTML = '<span>◌</span>Pesquisando…';
   state.results = [];
   const totalSteps = state.items.length * 2;
-  let step = 0;
-  setProgress(step, totalSteps);
+  let completedSteps = 0;
+  setProgress(0, totalSteps);
+  setStage(2);
 
   try {
-    status('Etapa 1 de 2: analisando o catálogo antes de pesquisar preços…');
-    for (let index = 0; index < state.items.length; index += 1) {
-      const item = state.items[index];
-      status(`Item ${index + 1} de ${state.items.length}: identificando os CATMAT mais semelhantes…`);
-      const catalog = await api('/api/catmat', { q: item.descricao, limit: 3 });
-      item.catmatSuggestions = catalog.items || [];
-      item.catmat = item.catmatSuggestions[0] || null;
-      step += 1;
-      setProgress(step, totalSteps);
-      renderItems();
-      await save();
-    }
-
-    state.results = state.items.filter((item) => !item.catmat).map((item) => ({
-      item, catmat: null, alternatives: [], found: [],
-      message: 'Nenhum CATMAT atingiu a confiança mínima. A pesquisa de preços deste item foi interrompida para evitar resultados incorretos.',
-    }));
-    const classified = state.items.filter((item) => item.catmat);
-    step += state.items.length - classified.length;
-    setProgress(step, totalSteps);
-    renderResults();
-
-    for (let index = 0; index < classified.length; index += 1) {
-      const item = classified[index];
-      if (!item.catmat) {
-        continue;
+    status('Etapa 1 de 2: identificando os CATMAT com busca híbrida e validação das especificações…');
+    await mapLimit(state.items, 3, async (item, index) => {
+      try {
+        const catalog = await api('/api/catmat', { q: item.descricao, limit: 5 });
+        item.catmatSuggestions = catalog.items || [];
+        item.catmat = item.catmatSuggestions[0] || null;
+        item.catalogError = item.catmat ? '' : 'Nenhum CATMAT semanticamente compatível foi localizado.';
+      } catch (error) {
+        item.catmatSuggestions = [];
+        item.catmat = null;
+        item.catalogError = error.message;
       }
+      completedSteps += 1;
+      setProgress(completedSteps, totalSteps);
+      status(`CATMAT: ${completedSteps} de ${state.items.length} itens analisados.`);
+      renderItems();
+      if (index % 2 === 0) await save();
+    });
+    await save();
 
-      status(`Etapa 2 de 2 · item ${index + 1} de ${classified.length}: pesquisando preços apenas para o CATMAT confiável ${item.catmat.codigoItem}…`);
-      const prices = await api('/api/prices', {
-        q: item.descricao,
-        catmat: item.catmat.codigoItem,
-        catmatDescription: item.catmat.descricaoItem,
-        start: period.start,
-        end: period.end,
-        limit: $('resultCount').value,
-        minScore: $('minScore').value,
-      });
-      state.results.push({ item, catmat: item.catmat, alternatives: item.catmatSuggestions.slice(1), found: prices.items || [], message: prices.message || '' });
-      step += 1;
-      setProgress(step, totalSteps);
-      renderResults();
-      await save();
-    }
+    const classified = state.items.filter((item) => item.catmat);
+    setStage(3);
+    status(`Etapa 2 de 2: consultando preços para ${classified.length} CATMAT confiáveis…`);
+    const priceGroups = await mapLimit(classified, 2, async (item, index) => {
+      try {
+        const prices = await api('/api/prices', {
+          q: item.descricao,
+          unit: item.unidade || '',
+          catmat: item.catmat.codigoItem,
+          catmatDescription: item.catmat.descricaoItem,
+          start: period.start,
+          end: period.end,
+          limit: $('resultCount').value,
+          minScore: $('minScore').value,
+        });
+        return { item, catmat: item.catmat, alternatives: item.catmatSuggestions.slice(1), found: prices.items || [], message: prices.message || '' };
+      } catch (error) {
+        return { item, catmat: item.catmat, alternatives: item.catmatSuggestions.slice(1), found: [], message: error.message };
+      } finally {
+        completedSteps += 1;
+        setProgress(completedSteps, totalSteps);
+        status(`PNCP: ${index + 1} de ${classified.length} itens consultados.`);
+      }
+    });
+
+    const byDescription = new Map(priceGroups.map((group) => [group.item.descricao, group]));
+    state.results = state.items.map((item) => byDescription.get(item.descricao) || {
+      item, catmat: null, alternatives: [], found: [], message: item.catalogError || 'CATMAT não identificado com segurança.',
+    });
+    await save();
+    renderResults();
+    setStage(4, true);
     const pricesFound = state.results.reduce((sum, group) => sum + group.found.length, 0);
-    const rejected = state.results.filter((group) => !group.catmat).length;
-    status(pricesFound
-      ? `Pesquisa concluída com ${pricesFound} preço(s). ${rejected ? `${rejected} item(ns) foram interrompidos por baixa confiança no CATMAT. ` : ''}Confirme cada resultado na fonte oficial antes de utilizá-lo.`
-      : `Pesquisa concluída sem preços comparáveis. ${rejected ? `${rejected} item(ns) não tinham CATMAT confiável e não geraram consultas desnecessárias.` : 'Tente ampliar o período ou reduzir a similaridade mínima.'}`);
+    const catalogsFound = state.results.filter((group) => group.catmat).length;
+    status(`Pesquisa concluída: ${catalogsFound} CATMAT e ${pricesFound} preços comparáveis. Confirme os registros na fonte oficial.`);
+    $('resultsSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (error) {
-    status(error.message || 'Não foi possível concluir a pesquisa agora. Tente novamente em alguns minutos.', true);
+    status(error.message || 'Não foi possível concluir a pesquisa agora.', true);
   } finally {
     $('searchButton').disabled = false;
-    $('searchButton').textContent = 'Identificar CATMAT e pesquisar preços';
-    setTimeout(() => $('progressWrap').classList.add('hidden'), 900);
+    $('searchButton').innerHTML = '<span>▶</span>Iniciar pesquisa <i>›</i>';
+    setTimeout(() => $('progressWrap').classList.add('hidden'), 1000);
   }
 }
 
@@ -195,38 +230,54 @@ function money(value) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 }
 
+function scoreClass(score) {
+  return score >= 80 ? 'high' : (score >= 65 ? 'medium' : 'low');
+}
+
+function formatDate(value) {
+  return value ? new Date(`${String(value).slice(0, 10)}T12:00:00`).toLocaleDateString('pt-BR') : '—';
+}
+
+function catalogCell(group) {
+  if (!group.catmat) return '<span class="pending-chip">Não identificado</span>';
+  const alternatives = group.alternatives?.length
+    ? `<details><summary>Outras sugestões</summary>${group.alternatives.map((item) => `<div>${esc(item.codigoItem)} · ${esc(item.nomePdm || item.descricaoItem)} (${item.score}%)</div>`).join('')}</details>` : '';
+  return `<div class="catalog-detail"><span class="catmat-code">${esc(group.catmat.codigoItem)}</span><small>${esc(group.catmat.nomePdm || group.catmat.descricaoItem)}</small>${alternatives}</div>`;
+}
+
 function renderResults() {
   const section = $('resultsSection');
-  const list = $('resultsList');
-  list.innerHTML = '';
+  const body = $('resultsTableBody');
   section.classList.toggle('hidden', !state.results.length);
-  state.results.forEach((group) => {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'result-group';
-    const catalog = group.catmat
-      ? `<div class="catalog-summary"><strong>CATMAT ${esc(String(group.catmat.codigoItem))}</strong><span>${esc(group.catmat.descricaoItem)}</span><small>${group.catmat.score}% de aderência ao item enviado</small></div>`
-      : '<div class="catalog-summary warning">CATMAT não identificado</div>';
-    wrapper.innerHTML = `<h3>${esc(group.item.descricao)}</h3>${catalog}`;
-    if (group.alternatives?.length) {
-      wrapper.innerHTML += `<details class="alternatives"><summary>Ver outros CATMAT sugeridos</summary>${group.alternatives.map((item) => `<p><strong>${esc(String(item.codigoItem))}</strong> · ${esc(item.descricaoItem)} <span>${item.score}%</span></p>`).join('')}</details>`;
+  const priceCount = state.results.reduce((sum, group) => sum + (group.found?.length || 0), 0);
+  const catalogCount = state.results.filter((group) => group.catmat).length;
+  const successCount = state.results.filter((group) => group.found?.length).length;
+  $('metricProcessed').textContent = state.items.length;
+  $('metricCatmat').textContent = catalogCount;
+  $('metricPrices').textContent = priceCount;
+  $('metricSuccess').textContent = state.items.length ? `${Math.round((successCount / state.items.length) * 100)}%` : '0%';
+  $('metricCatmatDetail').textContent = state.items.length ? `${Math.round((catalogCount / state.items.length) * 100)}% dos itens classificados` : 'Aguardando pesquisa';
+  $('metricPricesDetail').textContent = catalogCount ? `Média de ${(priceCount / catalogCount).toFixed(1)} por CATMAT` : 'Aguardando pesquisa';
+
+  const rows = [];
+  state.results.forEach((group, groupIndex) => {
+    if (!group.found?.length) {
+      rows.push(`<tr class="empty-row"><td>${groupIndex + 1}</td><td class="item-name">${esc(group.item.descricao)}</td><td>—</td><td>${catalogCell(group)}</td><td colspan="4">${esc(group.message || 'Nenhum preço comparável atingiu os critérios definidos.')}</td></tr>`);
+      return;
     }
-    if (!group.found.length) wrapper.innerHTML += `<p class="empty">${esc(group.message || 'Nenhum preço atingiu os critérios definidos.')}</p>`;
-    group.found.forEach((result) => {
-      const node = $('resultTemplate').content.cloneNode(true);
-      node.querySelector('.score').textContent = `${result.score}% similar`;
-      node.querySelector('h3').textContent = result.descricao;
-      node.querySelector('.source-description').textContent = result.fornecedor ? `Fornecedor: ${result.fornecedor}` : 'Registro público localizado';
-      node.querySelector('.price').textContent = money(result.valor);
-      node.querySelector('.pncp-item').textContent = result.numeroItemPncp ? `Item ${result.numeroItemPncp}` : '—';
-      node.querySelector('.unit').textContent = result.unidade || '—';
-      node.querySelector('.agency').textContent = result.orgao || '—';
-      node.querySelector('.date').textContent = result.data ? new Date(`${result.data.slice(0, 10)}T12:00:00`).toLocaleDateString('pt-BR') : '—';
-      node.querySelector('.price-type').textContent = result.tipo || '—';
-      node.querySelector('.evidence').href = result.link;
-      wrapper.append(node);
+    group.found.forEach((result, resultIndex) => {
+      const reasons = result.matchReasons?.length ? result.matchReasons.join(' · ') : 'Comparação por descrição e especificações';
+      rows.push(`<tr><td>${groupIndex + 1}.${resultIndex + 1}</td><td class="item-name">${esc(group.item.descricao)}<small>${esc(reasons)}</small></td><td><span class="match-pill ${scoreClass(result.score)}">${result.score}%</span></td><td>${catalogCell(group)}</td><td class="price-cell"><strong>${money(result.valor)}</strong><small>Item ${esc(result.numeroItemPncp || '—')} · ${esc(result.descricao)}</small></td><td>${esc(result.unidade || '—')}</td><td class="agency-date">${esc(result.orgao || '—')}<small>${formatDate(result.data)} · <span class="type-pill">${esc(result.tipo || 'Registro')}</span></small></td><td><a class="official-link" href="${esc(result.link)}" target="_blank" rel="noopener">↗ Abrir compra</a></td></tr>`);
     });
-    list.append(wrapper);
   });
+  body.innerHTML = rows.join('');
+  filterRows();
+  if (state.results.length) setStage(4, true);
+}
+
+function filterRows() {
+  const term = normalizeHeader($('globalSearch').value);
+  document.querySelectorAll('#resultsTableBody tr').forEach((row) => row.classList.toggle('filtered-out', Boolean(term) && !normalizeHeader(row.textContent).includes(term)));
 }
 
 function status(text, isError = false) {
@@ -236,14 +287,16 @@ function status(text, isError = false) {
 
 function sample() {
   state.items = [
-    { descricao: 'Papel A4, 75 g/m², resma com 500 folhas', unidade: 'Resma', quantidade: '20' },
-    { descricao: 'Caneta esferográfica azul, ponta média', unidade: 'Unidade', quantidade: '100' },
+    { descricao: 'Papel sulfite A4, 75 g/m², branco, resma com 500 folhas', unidade: 'Resma', quantidade: '20' },
+    { descricao: 'Caneta esferográfica azul, ponta média 1,0 mm', unidade: 'Unidade', quantidade: '100' },
+    { descricao: 'Lâmpada LED bulbo 12 W bivolt', unidade: 'Unidade', quantidade: '30' },
   ];
   state.results = [];
   save();
   renderItems();
   renderResults();
-  status('Exemplo carregado. Clique em pesquisar para identificar os CATMAT.');
+  status('Modelo carregado. Revise os itens e inicie a pesquisa.');
+  $('nova-pesquisa').scrollIntoView({ behavior: 'smooth' });
 }
 
 function csv() {
@@ -270,8 +323,20 @@ $('clearButton').onclick = async () => {
   await save();
   renderItems();
   renderResults();
+  setStage(1);
   status('Dados locais removidos.');
 };
-$('periodPreset').addEventListener('change', () => { toggleCustomPeriod(); persistSettings(); });
-fields.filter((id) => id !== 'periodPreset').forEach((id) => $(id).addEventListener('change', persistSettings));
+fields.forEach((id) => $(id).addEventListener('change', () => { updateControls(); persistSettings(); }));
+$('resultCount').addEventListener('input', updateControls);
+$('minScore').addEventListener('input', updateControls);
+$('globalSearch').addEventListener('input', filterRows);
+document.addEventListener('keydown', (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); $('globalSearch').focus(); }
+});
+['dragenter', 'dragover'].forEach((name) => $('dropzone').addEventListener(name, (event) => { event.preventDefault(); $('dropzone').classList.add('dragging'); }));
+['dragleave', 'drop'].forEach((name) => $('dropzone').addEventListener(name, (event) => { event.preventDefault(); $('dropzone').classList.remove('dragging'); }));
+$('dropzone').addEventListener('drop', (event) => event.dataTransfer.files[0] && importFile(event.dataTransfer.files[0]));
+
+setStage(1);
+updateControls();
 load();
