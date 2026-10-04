@@ -49,6 +49,7 @@ const exclusiveAttributeGroups = [
   ['unipolar', 'monopolar', 'bipolar', 'tripolar', 'tetrapolar'],
   ['monofasico', 'bifasico', 'trifasico'],
   ['aci', 'acii', 'aciii'],
+  ['curvaa', 'curvab', 'curvac'],
   ['fosco', 'semibrilho', 'brilhante'],
 ];
 
@@ -86,6 +87,7 @@ function baseTokens(value = '') {
     .replace(/ampere\s*-?\s*hora/g, 'amperehora')
     .replace(/\bcp\s*([ivx]+)\s*-?\s*([a-z])?\s*-?\s*(\d{2})\b/g, (_, roman, kind, strength) => `cp${roman}${kind || ''}${strength}`)
     .replace(/\bac\s*-?\s*(iii|ii|i)\b/g, 'ac$1')
+    .replace(/\bcurva\s*[-:]?\s*([abc])\b/g, 'curva$1')
     .replace(/\b(\d{1,2})\s*w\s*-?\s*(\d{1,2})\b/g, '$1w$2')
     .replace(/\be\s*-?\s*(\d{4})\b/g, 'e$1')
     .replace(/\b([a-z])\s*-\s*(\d{1,4})\b/g, '$1$2')
@@ -557,7 +559,7 @@ async function hierarchicalPdms(query) {
   return pages.flatMap((page) => page.resultado || []);
 }
 
-async function searchCatmat(query, limit, debug = false) {
+async function searchCatmat(query, limit) {
   const [officialLists, preferred] = await Promise.all([
     officialPdmLists(query).catch(() => []),
     directPreferredPdms(query),
@@ -569,7 +571,7 @@ async function searchCatmat(query, limit, debug = false) {
     pdms = rankPdms(query, fusePdmLists([...retrievalLists, hierarchical]));
   }
   pdms = pdms.slice(0, 14);
-  if (!pdms.length) return debug ? { items: [], debug: { variants: queryVariants(query), preferred: preferredPdms(query), pdms: [] } } : [];
+  if (!pdms.length) return [];
 
   const firstPages = await mapConcurrent(pdms, 5, async (pdm) => {
     const itemUrl = `${comprasBase}/modulo-material/4_consultarItemMaterial?pagina=1&tamanhoPagina=500&codigoPdm=${pdm.codigoPdm}&statusItem=true`;
@@ -637,17 +639,7 @@ async function searchCatmat(query, limit, debug = false) {
     return domainMatch && item.score >= threshold;
   }).sort((a, b) => b.score - a.score).slice(0, limit)
     .map(({ _headMatch, _primaryMatch, _identityScore, _semanticMatch, _preferredPdm, _officialPdm, ...item }) => item);
-  if (!debug) return items;
-  return {
-    items,
-    debug: {
-      variants: queryVariants(query),
-      preferred: preferredPdms(query),
-      pdms: pdms.map((pdm) => ({ code: pdm.codigoPdm, name: pdm.nomePdm, score: pdm._score, preferred: pdm._preferred })),
-      pages: itemPages.map(({ pdm, page }) => ({ code: pdm.codigoPdm, count: (page.resultado || []).length })),
-      topScored: scoredItems.sort((a, b) => b.score - a.score).slice(0, 12),
-    },
-  };
+  return items;
 }
 
 function unwrapList(value) {
@@ -792,37 +784,12 @@ export default {
       const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
       return new Response(bytes, { headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400' } });
     }
-    if (url.pathname === '/api/debug-score') {
-      const query = (url.searchParams.get('q') || '').trim();
-      const code = Number(url.searchParams.get('code'));
-      const payload = await fetchJson(`${comprasBase}/modulo-material/4_consultarItemMaterial?pagina=1&tamanhoPagina=10&codigoItem=${code}`, { retries: 2 });
-      const item = (payload.resultado || [])[0];
-      if (!item) return json({ message: 'item_not_found' }, 404);
-      const description = `${item.nomePdm || ''} ${item.descricaoItem || ''}`;
-      return json({
-        description,
-        concepts: matchedConcepts(query).map((concept) => concept.id),
-        queryTokens: baseTokens(query),
-        candidateTokens: baseTokens(description),
-        lexical: similarity(query, description),
-        object: lateInteractionScore(anchorTokens(query).slice(0, 5).join(' '), description),
-        identity: objectIdentityScore(query, description),
-        specifications: specificationCompatibility(query, description),
-        identifiers: identifierCompatibility(query, description),
-        categoricalMaterial: categoricalConflict(query, description, materialTokens),
-        categoricalColor: categoricalConflict(query, description, colorTokens),
-        exclusive: exclusiveAttributeConflicts(query, description),
-        accessory: accessoryPenalty(query, description),
-        penalty: constraintPenalty(query, description),
-      });
-    }
     if (url.pathname === '/api/catmat') {
       const query = (url.searchParams.get('q') || '').trim();
       if (query.length < 3) return json({ message: 'A descrição do item é muito curta para identificar o CATMAT.' }, 400);
       try {
-        const debug = url.searchParams.get('debug') === '1';
-        const result = await searchCatmat(query, Math.min(debug ? 20 : 5, Number(url.searchParams.get('limit')) || 3), debug);
-        return json(debug ? result : { items: result });
+        const items = await searchCatmat(query, Math.min(5, Number(url.searchParams.get('limit')) || 3));
+        return json({ items });
       } catch {
         return json({ message: 'Não foi possível consultar o catálogo CATMAT agora. Tente novamente em alguns minutos.' }, 503);
       }
