@@ -356,7 +356,7 @@ function rankPdms(query, items) {
     ));
     return { ...item, codigoPdm, nomePdm, _score: score, _nameScore: nameScore, _objectScore: objectScore, _evidence: evidence, _preferred: preferredMatch };
   }).filter((item) => {
-    if (!item.codigoPdm || item.statusPDM === false || item.statusPdm === false) return false;
+    if (!item.codigoPdm || ((item.statusPDM === false || item.statusPdm === false) && !item._preferred)) return false;
     return item._preferred || item._objectScore >= 42 || item._nameScore >= 34 || item._score >= 38;
   }).sort((a, b) => b._score - a._score);
 }
@@ -382,7 +382,7 @@ async function officialPdmLists(query) {
 async function directPreferredPdms(query) {
   const codes = preferredPdms(query);
   const pages = await Promise.all(codes.map((codigoPdm) => fetchJson(
-    `${comprasBase}/modulo-material/3_consultarPdmMaterial?pagina=1&tamanhoPagina=20&codigoPdm=${codigoPdm}&statusPdm=true`,
+    `${comprasBase}/modulo-material/3_consultarPdmMaterial?pagina=1&tamanhoPagina=20&codigoPdm=${codigoPdm}`,
     { ttl: 86400000 },
   ).catch(() => ({ resultado: [] }))));
   return pages.flatMap((page) => page.resultado || []);
