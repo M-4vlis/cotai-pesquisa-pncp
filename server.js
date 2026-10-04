@@ -137,6 +137,13 @@ function headMatches(query, candidate) {
   return heads.some((head) => normalize(head).some((token) => tokenMatches(token, target)));
 }
 
+function primaryObjectMatches(query, candidate) {
+  const primary = anchorTokens(query).slice(0, 2);
+  if (!primary.length) return headMatches(query, candidate);
+  const target = new Set(normalize(candidate));
+  return primary.some((token) => [token, ...(aliases[token] || [])].some((value) => tokenMatches(value, target)));
+}
+
 function anchorTokens(value = '') {
   const tokens = baseTokens(value).filter((token) => !genericObjectTokens.has(token) && !lowValueTokens.has(token) && !/^\d/.test(token));
   return [...new Set(tokens)];
@@ -240,6 +247,19 @@ async function fetchJson(url, { timeout = 12000, retries = 1, ttl = 0 } = {}) {
     }
   }
   throw lastError;
+}
+
+async function mapConcurrent(items, limit, callback) {
+  const output = new Array(items.length);
+  let cursor = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      output[index] = await callback(items[index], index);
+    }
+  }));
+  return output;
 }
 
 const comprasBase = 'https://dadosabertos.compras.gov.br';
@@ -390,7 +410,7 @@ async function searchCatmat(query, limit) {
   pdms = pdms.slice(0, 14);
   if (!pdms.length) return [];
 
-  const firstPages = await Promise.all(pdms.map(async (pdm) => ({ pdm, page: await fetchJson(
+  const firstPages = await mapConcurrent(pdms, 5, async (pdm) => ({ pdm, page: await fetchJson(
     `${comprasBase}/modulo-material/4_consultarItemMaterial?pagina=1&tamanhoPagina=500&codigoPdm=${pdm.codigoPdm}&statusItem=true`,
     { ttl: 86400000 },
   ).catch(() => ({ resultado: [] })) })));
@@ -426,6 +446,7 @@ async function searchCatmat(query, limit) {
       confidence: score >= 78 ? 'alta' : (score >= 60 ? 'boa' : 'possível'),
       reasons,
       _headMatch: headMatches(query, description),
+      _primaryMatch: primaryObjectMatches(query, description),
       _semanticMatch: pdm._preferred || objectScore >= 48 || (pdm._objectScore >= 50 && lexical >= 34),
       _preferredPdm: pdm._preferred,
       _officialPdm: Boolean(pdm._official),
@@ -433,10 +454,10 @@ async function searchCatmat(query, limit) {
   }).filter((item) => {
     if (!item.codigoItem || seen.has(item.codigoItem)) return false;
     seen.add(item.codigoItem);
-    const threshold = item._preferredPdm ? 32 : (item._officialPdm ? 34 : 42);
-    return item._headMatch && item._semanticMatch && item.score >= threshold;
+    const threshold = item._preferredPdm ? 24 : (item._officialPdm ? 22 : 30);
+    return item._preferredPdm ? item.score >= threshold : (item._primaryMatch && item.score >= threshold);
   }).sort((a, b) => b.score - a.score).slice(0, limit)
-    .map(({ _headMatch, _semanticMatch, _preferredPdm, _officialPdm, ...item }) => item);
+    .map(({ _headMatch, _primaryMatch, _semanticMatch, _preferredPdm, _officialPdm, ...item }) => item);
 }
 
 function unwrapList(value) {

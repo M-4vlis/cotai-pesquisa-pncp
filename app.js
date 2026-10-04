@@ -162,7 +162,7 @@ async function search() {
 
   try {
     status('Etapa 1 de 2: identificando os CATMAT com busca híbrida e validação das especificações…');
-    await mapLimit(state.items, 3, async (item, index) => {
+    await mapLimit(state.items, 2, async (item, index) => {
       try {
         const catalog = await api('/api/catmat', { q: item.descricao, limit: 5 });
         item.catmatSuggestions = catalog.items || [];
@@ -210,6 +210,7 @@ async function search() {
     state.results = state.items.map((item) => byDescription.get(item.descricao) || {
       item, catmat: null, alternatives: [], found: [], message: item.catalogError || 'CATMAT não identificado com segurança.',
     });
+    setProgress(totalSteps, totalSteps);
     await save();
     renderResults();
     setStage(4, true);
