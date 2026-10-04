@@ -20,17 +20,24 @@ const aliasGroups = [
   ['arcondicionado', 'condicionador'], ['sanitario', 'sanitaria', 'hidraulica'], ['pne', 'acessibilidade'],
   ['contra', 'sede'], ['refil', 'elemento', 'filtrante'], ['sulfite', 'papel', 'impressao'],
   ['lampada', 'bulbo'], ['copo', 'recipiente'], ['mascara', 'respirador'], ['mouse', 'apontador'],
+  ['drywall', 'gesso', 'acartonado'], ['eletroduto', 'conduite'], ['cotovelo', 'joelho'],
+  ['fio', 'cabo', 'condutor'], ['brita', 'pedra'], ['porcelanato', 'revestimento'],
+  ['interruptor', 'acionador'], ['disjuntor', 'termomagnetico'], ['rolamento', 'mancal'],
 ];
 const aliases = Object.fromEntries(aliasGroups.flatMap((group) => group.map((token) => [token, group.filter((value) => value !== token)])));
 const stopTokens = new Set(['com', 'para', 'das', 'dos', 'uma', 'umas', 'uns', 'por', 'sem', 'tipo', 'modelo', 'unidade', 'unidades', 'uso', 'nome', 'referencia', 'de', 'da', 'do', 'e', 'em', 'no', 'na', 'nos', 'nas', 'ao', 'aos']);
 const lowValueTokens = new Set(['acabamento', 'completo', 'completa', 'superior', 'inferior', 'cromado', 'cromada', 'material', 'aplicacao', 'caracteristicas', 'adicionais', 'bitola', 'acionamento', 'aproximado', 'aproximada']);
 const genericObjectTokens = new Set(['aquisicao', 'fornecimento', 'compra', 'contratacao', 'material', 'produto', 'item', 'peca', 'pecas', 'acessorio', 'acessorios', 'kit', 'conjunto', 'lote', 'base', 'acabamento', 'completo', 'completa', 'marca']);
+const packagingTokens = new Set(['saco', 'sacos', 'balde', 'baldes', 'barra', 'barras', 'rolo', 'rolos', 'caixa', 'caixas', 'pacote', 'pacotes', 'embalagem', 'galão', 'galao', 'lata', 'latas']);
+const accessoryTokens = new Set(['base', 'suporte', 'refil', 'tampa', 'reparo', 'adaptador', 'aplicador', 'maquina', 'equipamento', 'fixacao', 'parafuso', 'prego', 'porca', 'arruela', 'calha', 'capa', 'estojo']);
 const colorTokens = new Set(['azul', 'amarelo', 'branco', 'branca', 'cinza', 'colorido', 'incolor', 'laranja', 'marrom', 'preto', 'preta', 'rosa', 'roxo', 'verde', 'vermelho', 'vermelha']);
 const materialTokens = new Set(['aco', 'algodao', 'aluminio', 'borracha', 'ceramica', 'couro', 'inox', 'latex', 'madeira', 'metal', 'nitrilica', 'nitrilico', 'papel', 'plastico', 'poliester', 'polipropileno', 'pvc', 'tecido', 'vidro', 'vinil']);
 const unitDefinitions = {
   mm: ['mm', 'milimetro', 'milimetros'], cm: ['cm', 'centimetro', 'centimetros'], m: ['m', 'metro', 'metros'],
+  mm2: ['mm2'], m2: ['m2'], m3: ['m3'],
   ml: ['ml', 'mililitro', 'mililitros'], l: ['l', 'lt', 'litro', 'litros'], g: ['g', 'gr', 'grama', 'gramas'],
   kg: ['kg', 'quilo', 'quilos', 'quilograma', 'quilogramas'], w: ['w', 'watt', 'watts'], v: ['v', 'volt', 'volts'],
+  a: ['a', 'ampere', 'amperes'], hz: ['hz'], kva: ['kva'], cv: ['cv'], bar: ['bar'], psi: ['psi'],
   ah: ['ah', 'amperehora'], mah: ['mah'], gb: ['gb', 'gigabyte', 'gigabytes'], tb: ['tb', 'terabyte', 'terabytes'],
   pol: ['pol', 'polegada', 'polegadas'], mlm: ['milmicra'],
   un: ['un', 'und', 'unidade', 'unidades'], cx: ['cx', 'caixa', 'caixas'], pct: ['pct', 'pacote', 'pacotes'],
@@ -38,11 +45,41 @@ const unitDefinitions = {
 };
 const unitLookup = Object.fromEntries(Object.entries(unitDefinitions).flatMap(([unit, values]) => values.map((value) => [value, unit])));
 
+const domainConcepts = [
+  { id: 'cimento-portland', patterns: [['cimento', 'portland'], ['cimento', 'cp']], terms: ['cimento portland', 'cimento'], pdms: [867], groups: [56], objects: ['cimento'] },
+  { id: 'argamassa', patterns: [['argamassa']], terms: ['argamassa colante', 'argamassa'], pdms: [14331], groups: [56], objects: ['argamassa'] },
+  { id: 'tinta-acrilica', patterns: [['tinta', 'acrilica']], terms: ['tinta acrilica', 'tinta'], pdms: [1501], groups: [80], objects: ['tinta'] },
+  { id: 'massa-corrida', patterns: [['massa', 'corrida'], ['massa', 'pva']], terms: ['massa corrida', 'massa pva'], pdms: [1508], groups: [80], objects: ['massa'] },
+  { id: 'telha', patterns: [['telha']], terms: ['telha fibrocimento', 'telha'], pdms: [813], groups: [56], objects: ['telha'] },
+  { id: 'tijolo', patterns: [['tijolo']], terms: ['tijolo ceramico', 'tijolo'], pdms: [811], groups: [56], objects: ['tijolo'] },
+  { id: 'areia', patterns: [['areia']], terms: ['areia construcao', 'areia'], pdms: [862], groups: [56], objects: ['areia'] },
+  { id: 'brita', patterns: [['brita']], terms: ['brita construcao', 'brita'], pdms: [863], groups: [56], objects: ['brita'] },
+  { id: 'drywall', patterns: [['drywall'], ['gesso', 'acartonado']], terms: ['placa gesso acartonado', 'gesso acartonado', 'drywall'], pdms: [7991], groups: [56], objects: ['placa', 'gesso'] },
+  { id: 'joelho-hidraulico', patterns: [['joelho', 'pvc'], ['cotovelo', 'pvc']], terms: ['conexao hidraulica pvc', 'cotovelo pvc', 'joelho pvc'], pdms: [13546, 14211], groups: [47], objects: ['joelho', 'cotovelo', 'conexao'] },
+  { id: 'tubo-pvc', patterns: [['tubo', 'pvc']], terms: ['tubo pvc', 'tubo conducao pvc'], groups: [47], objects: ['tubo'] },
+  { id: 'torneira', patterns: [['torneira']], terms: ['torneira hidraulica', 'torneira'], pdms: [12820], groups: [45], objects: ['torneira'] },
+  { id: 'disjuntor', patterns: [['disjuntor']], terms: ['disjuntor baixa tensao', 'disjuntor termomagnetico', 'disjuntor'], pdms: [4], groups: [59], objects: ['disjuntor'] },
+  { id: 'cabo-eletrico', patterns: [['cabo', 'eletrico'], ['fio', 'eletrico']], terms: ['cabo eletrico flexivel', 'fio eletrico', 'cabo eletrico'], pdms: [4009, 7533], groups: [61], objects: ['cabo', 'fio'] },
+  { id: 'eletroduto', patterns: [['eletroduto'], ['conduite']], terms: ['eletroduto pvc', 'eletroduto'], groups: [59], objects: ['eletroduto'] },
+  { id: 'parafuso', patterns: [['parafuso']], terms: ['parafuso sextavado', 'parafuso'], pdms: [14522], groups: [53], objects: ['parafuso'] },
+  { id: 'rolamento', patterns: [['rolamento']], terms: ['rolamento esfera', 'rolamento'], pdms: [11801], groups: [31], objects: ['rolamento'] },
+  { id: 'correia', patterns: [['correia']], terms: ['correia transmissao', 'correia trapezoidal', 'correia'], pdms: [5892], groups: [30], objects: ['correia'] },
+  { id: 'oleo-lubrificante', patterns: [['oleo', 'lubrificante'], ['lubrificante']], terms: ['oleo lubrificante', 'lubrificante'], pdms: [10198], groups: [91], objects: ['oleo', 'lubrificante'] },
+  { id: 'eletrodo-solda', patterns: [['eletrodo', 'solda'], ['eletrodo', 'e6013'], ['eletrodo', 'e7018']], terms: ['eletrodo solda', 'eletrodo'], pdms: [1157], groups: [34], objects: ['eletrodo'] },
+  { id: 'broca-concreto', patterns: [['broca', 'concreto'], ['broca', 'parede'], ['broca', 'widia']], terms: ['broca widia', 'broca concreto', 'broca'], pdms: [3908, 3879], groups: [51], objects: ['broca'] },
+  { id: 'ferramenta', patterns: [['furadeira'], ['esmerilhadeira'], ['martelete'], ['serra', 'circular']], terms: ['ferramenta eletrica'], groups: [51], objects: [] },
+  { id: 'revestimento', patterns: [['porcelanato'], ['piso', 'ceramico'], ['revestimento', 'ceramico']], terms: ['revestimento ceramico', 'porcelanato', 'piso ceramico'], groups: [56], objects: ['porcelanato', 'piso', 'revestimento'] },
+  { id: 'impermeabilizante', patterns: [['impermeabilizante'], ['manta', 'asfaltica']], terms: ['impermeabilizante construcao', 'manta asfaltica'], groups: [56], objects: ['impermeabilizante', 'manta'] },
+];
+
 function baseTokens(value = '') {
   const prepared = String(value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/ar\s*-?\s*condicionado/g, 'arcondicionado')
     .replace(/pen\s*-?\s*drive/g, 'pendrive')
     .replace(/ampere\s*-?\s*hora/g, 'amperehora')
+    .replace(/\bcp\s*([ivx]+)\s*-?\s*([a-z])?\s*-?\s*(\d{2})\b/g, (_, roman, kind, strength) => `cp${roman}${kind || ''}${strength}`)
+    .replace(/\b(\d{1,2})\s*w\s*-?\s*(\d{1,2})\b/g, '$1w$2')
+    .replace(/\be\s*-?\s*(\d{4})\b/g, 'e$1')
     .replace(/(\d+)\s*[.,\s]\s*(\d+)\s*\/\s*(\d+)/g, '$1_$2_$3')
     .replace(/(\d+)\s*\/\s*(\d+)/g, '$1_$2');
   return prepared.replace(/[^a-z0-9_ ]/g, ' ').split(/\s+/)
@@ -51,6 +88,66 @@ function baseTokens(value = '') {
 
 function normalize(value = '') {
   return [...new Set(baseTokens(value).flatMap((token) => [token, ...(aliases[token] || [])]))];
+}
+
+function matchedConcepts(value = '') {
+  const tokens = new Set(baseTokens(value));
+  const hasToken = (token) => tokens.has(token) || (token === 'cp' && [...tokens].some((valueToken) => /^cp[ivx]/.test(valueToken)));
+  return domainConcepts.filter((concept) => concept.patterns.some((pattern) => pattern.every(hasToken)));
+}
+
+function conceptObjectTokens(value = '') {
+  const concepts = matchedConcepts(value);
+  const known = concepts.flatMap((concept) => concept.objects || []);
+  if (known.length) return [...new Set(known)];
+  return [...new Set(baseTokens(value).filter((token) => !genericObjectTokens.has(token)
+    && !lowValueTokens.has(token) && !packagingTokens.has(token) && !unitLookup[token]
+    && !/^\d/.test(token)))].slice(0, 3);
+}
+
+function objectIdentityScore(query, candidate) {
+  const expected = conceptObjectTokens(query);
+  if (!expected.length) return lateInteractionScore(query, candidate);
+  const target = new Set(baseTokens(candidate));
+  const scores = expected.map((token) => {
+    if (target.has(token)) return 1;
+    if ([...(aliases[token] || [])].some((alias) => target.has(alias))) return 0.88;
+    if ([...target].some((other) => tokenAffinity(token, other) >= 0.94)) return 0.72;
+    return 0;
+  });
+  if (matchedConcepts(query).length) return Math.round(Math.max(0, ...scores) * 100);
+  return Math.round((scores.reduce((sum, score) => sum + score, 0) / expected.length) * 100);
+}
+
+function accessoryPenalty(query, candidate) {
+  const source = new Set(baseTokens(query));
+  const target = new Set(baseTokens(candidate));
+  const unexpected = [...target].filter((token) => accessoryTokens.has(token) && !source.has(token));
+  if (!unexpected.length) return 0;
+  const identity = objectIdentityScore(query, candidate);
+  return Math.min(42, unexpected.length * (identity >= 92 ? 18 : 21));
+}
+
+function extractIdentifiers(value = '') {
+  return [...new Set(baseTokens(value).filter((token) => {
+    if (unitLookup[token] || packagingTokens.has(token)) return false;
+    if (/^(?:19|20)\d{2}$/.test(token)) return false;
+    return /[a-z].*\d|\d.*[a-z]/.test(token) || /^\d{4,6}$/.test(token);
+  }))];
+}
+
+function identifierCompatibility(query, candidate) {
+  const requested = extractIdentifiers(query);
+  if (!requested.length) return { score: 68, conflicts: 0, matched: 0, total: 0 };
+  const offered = new Set(extractIdentifiers(candidate));
+  const matched = requested.filter((token) => offered.has(token)).length;
+  const missing = requested.length - matched;
+  return {
+    score: Math.round(((matched + (missing * 0.18)) / requested.length) * 100),
+    conflicts: missing,
+    matched,
+    total: requested.length,
+  };
 }
 
 function tokenStem(token = '') {
@@ -93,6 +190,7 @@ function tokenMatches(token, targets) {
 function tokenWeight(token) {
   if (genericObjectTokens.has(token)) return 0.22;
   if (lowValueTokens.has(token)) return 0.38;
+  if (packagingTokens.has(token)) return 0.28;
   if (/\d/.test(token)) return 1.55;
   return token.length >= 9 ? 1.25 : 1;
 }
@@ -145,7 +243,8 @@ function primaryObjectMatches(query, candidate) {
 }
 
 function anchorTokens(value = '') {
-  const tokens = baseTokens(value).filter((token) => !genericObjectTokens.has(token) && !lowValueTokens.has(token) && !/^\d/.test(token));
+  const tokens = baseTokens(value).filter((token) => !genericObjectTokens.has(token) && !lowValueTokens.has(token)
+    && !packagingTokens.has(token) && !unitLookup[token] && !/^\d/.test(token));
   return [...new Set(tokens)];
 }
 
@@ -167,6 +266,8 @@ function normalizedUnit(unit = '') {
 
 function unitFamily(unit) {
   if (['mm', 'cm', 'm', 'pol'].includes(unit)) return 'length';
+  if (['mm2', 'm2'].includes(unit)) return 'area';
+  if (unit === 'm3') return 'volume';
   if (['ml', 'l'].includes(unit)) return 'volume';
   if (['g', 'kg'].includes(unit)) return 'mass';
   if (['gb', 'tb'].includes(unit)) return 'storage';
@@ -175,7 +276,7 @@ function unitFamily(unit) {
 
 function normalizedMeasure(value, unit) {
   const numeric = Number(String(value).replace(',', '.'));
-  const factors = { mm: 1, cm: 10, m: 1000, pol: 25.4, ml: 1, l: 1000, g: 1, kg: 1000, gb: 1, tb: 1000 };
+  const factors = { mm: 1, cm: 10, m: 1000, pol: 25.4, mm2: 1, m2: 1000000, m3: 1000000, ml: 1, l: 1000, g: 1, kg: 1000, gb: 1, tb: 1000 };
   return { value: numeric * (factors[unit] || 1), family: unitFamily(unit), unit };
 }
 
@@ -218,8 +319,11 @@ function categoricalConflict(query, candidate, dictionary) {
 
 function constraintPenalty(query, candidate) {
   const specs = specificationCompatibility(query, candidate);
-  return (specs.conflicts * 14) + (categoricalConflict(query, candidate, colorTokens) * 12)
-    + (categoricalConflict(query, candidate, materialTokens) * 14);
+  const identifiers = identifierCompatibility(query, candidate);
+  return (specs.conflicts * 14) + (identifiers.conflicts * 18)
+    + (categoricalConflict(query, candidate, colorTokens) * 12)
+    + (categoricalConflict(query, candidate, materialTokens) * 14)
+    + accessoryPenalty(query, candidate);
 }
 
 async function fetchJson(url, { timeout = 12000, retries = 1, ttl = 0 } = {}) {
@@ -283,6 +387,17 @@ function hintedGroups(query) {
     84: ['uniforme', 'camisa', 'calca', 'bota', 'vestuario'],
     85: ['higiene', 'sabonete', 'papel higienico', 'creme dental'],
     65: ['medicamento', 'hospitalar', 'seringa', 'agulha', 'luva cirurgica'],
+    31: ['rolamento', 'mancal', 'engrenagem'],
+    34: ['solda', 'eletrodo', 'maquina solda'],
+    45: ['torneira', 'fechadura', 'dobradica', 'ferragem'],
+    47: ['tubo', 'conexao', 'joelho', 'cotovelo', 'registro', 'hidraulica', 'pvc'],
+    51: ['broca', 'furadeira', 'martelete', 'serra', 'esmerilhadeira', 'ferramenta'],
+    53: ['parafuso', 'porca', 'arruela', 'prego', 'rebite'],
+    56: ['cimento', 'argamassa', 'telha', 'tijolo', 'areia', 'brita', 'gesso', 'drywall', 'porcelanato', 'revestimento'],
+    59: ['disjuntor', 'tomada', 'interruptor', 'eletroduto', 'quadro eletrico'],
+    61: ['cabo eletrico', 'fio eletrico', 'condutor eletrico'],
+    80: ['tinta', 'massa corrida', 'selador', 'verniz', 'impermeabilizante'],
+    91: ['oleo', 'lubrificante', 'graxa'],
   };
   const tokens = new Set(normalize(query));
   const text = [...tokens].join(' ');
@@ -292,6 +407,7 @@ function hintedGroups(query) {
   if (plumbing.some((token) => tokens.has(token))) groups.push(45);
   if (tokens.has('valvula') && valveParts.some((token) => tokens.has(token))) groups.push(45);
   if (tokens.has('valvula') && !groups.includes(45)) groups.push(48);
+  matchedConcepts(query).forEach((concept) => groups.push(...(concept.groups || [])));
   return [...new Set(groups)];
 }
 
@@ -310,6 +426,7 @@ function preferredPdms(query) {
   if (tokens.has('alcool') && (tokens.has('etilico') || tokens.has('70'))) preferred.push(2259);
   if (tokens.has('cafe')) preferred.push(911);
   if (tokens.has('arcondicionado')) preferred.push(13768);
+  matchedConcepts(query).forEach((concept) => preferred.push(...(concept.pdms || [])));
   return preferred;
 }
 
@@ -347,17 +464,19 @@ function rankPdms(query, items) {
     const nameScore = similarity(query, nomePdm);
     const contextScore = Math.round((similarity(query, className) * 0.68) + (similarity(query, groupName) * 0.32));
     const objectScore = lateInteractionScore(anchorTokens(query).slice(0, 5).join(' '), `${nomePdm} ${className}`);
+    const identityScore = objectIdentityScore(query, nomePdm);
     const evidence = semanticEvidence(query, nomePdm);
     const preferredMatch = preferred.includes(codigoPdm);
     const groupMatch = groups.includes(Number(item.codigoGrupo));
     const score = Math.min(100, Math.round(
-      (nameScore * 0.43) + (contextScore * 0.16) + (objectScore * 0.22) + ((item._rrf || 0) * 0.13)
-      + (groupMatch ? 6 : 0) + (preferredMatch ? 28 : 0),
+      (nameScore * 0.31) + (contextScore * 0.12) + (objectScore * 0.18) + (identityScore * 0.22)
+      + ((item._rrf || 0) * 0.11) + (groupMatch ? 6 : 0) + (preferredMatch ? 30 : 0)
+      - accessoryPenalty(query, nomePdm),
     ));
-    return { ...item, codigoPdm, nomePdm, _score: score, _nameScore: nameScore, _objectScore: objectScore, _evidence: evidence, _preferred: preferredMatch };
+    return { ...item, codigoPdm, nomePdm, _score: score, _nameScore: nameScore, _objectScore: objectScore, _identityScore: identityScore, _evidence: evidence, _preferred: preferredMatch };
   }).filter((item) => {
     if (!item.codigoPdm || ((item.statusPDM === false || item.statusPdm === false) && !item._preferred)) return false;
-    return item._preferred || item._objectScore >= 42 || item._nameScore >= 34 || item._score >= 38;
+    return item._preferred || item._identityScore >= 56 || item._objectScore >= 44 || item._nameScore >= 38 || item._score >= 42;
   }).sort((a, b) => b._score - a._score);
 }
 
@@ -366,8 +485,21 @@ function queryVariants(query) {
   const raw = String(query).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180);
   const anchors = anchorTokens(query).slice(0, 7);
-  const expanded = [...new Set(anchors.flatMap((token) => [token, ...(aliases[token] || [])]))].slice(0, 8).join(' ');
-  return [...new Set([anchors.slice(0, 3).join(' '), anchors.join(' '), expanded, raw, cleaned].filter((term) => term.length >= 2))].slice(0, 5);
+  const objects = conceptObjectTokens(query).slice(0, 3);
+  const expanded = [...new Set(objects.flatMap((token) => [token, ...(aliases[token] || [])]))].slice(0, 6).join(' ');
+  const conceptTerms = matchedConcepts(query).flatMap((concept) => concept.terms || []);
+  const objectSingles = objects.filter((token) => token.length >= 3);
+  return [...new Set([
+    ...conceptTerms,
+    objects.join(' '),
+    ...objectSingles,
+    anchors.slice(0, 2).join(' '),
+    anchors.slice(0, 3).join(' '),
+    expanded,
+    anchors.join(' '),
+    raw,
+    cleaned,
+  ].filter((term) => term.length >= 2))].slice(0, 10);
 }
 
 async function officialPdmLists(query) {
@@ -419,29 +551,35 @@ async function searchCatmat(query, limit) {
     `${comprasBase}/modulo-material/4_consultarItemMaterial?pagina=1&tamanhoPagina=500&codigoPdm=${pdm.codigoPdm}&statusItem=true`,
     { ttl: 86400000 },
   ).catch(() => ({ resultado: [] })) }));
-  const overflowPages = await Promise.all(firstPages.slice(0, 4).flatMap(({ pdm, page }) => {
-    const totalPages = Math.min(3, Number(page.totalPaginas) || 1);
+  const overflowRequests = firstPages.flatMap(({ pdm, page }, pdmIndex) => {
+    const pageLimit = pdm._preferred ? 8 : (pdmIndex < 5 ? 4 : (pdmIndex < 9 ? 2 : 1));
+    const totalPages = Math.min(pageLimit, Number(page.totalPaginas) || 1);
     return Array.from({ length: Math.max(0, totalPages - 1) }, (_, index) => fetchJson(
       `${comprasBase}/modulo-material/4_consultarItemMaterial?pagina=${index + 2}&tamanhoPagina=500&codigoPdm=${pdm.codigoPdm}&statusItem=true`,
       { ttl: 86400000 },
     ).then((extra) => ({ pdm, page: extra })).catch(() => ({ pdm, page: { resultado: [] } })));
-  }));
+  });
+  const overflowPages = await mapConcurrent(overflowRequests, 6, (request) => request);
   const itemPages = [...firstPages, ...overflowPages];
   const seen = new Set();
   return itemPages.flatMap(({ pdm, page }) => (page.resultado || []).map((item) => ({ item, pdm }))).map(({ item, pdm }) => {
     const description = `${item.nomePdm || ''} ${item.descricaoItem || ''}`;
     const lexical = similarity(query, description);
     const objectScore = lateInteractionScore(anchorTokens(query).slice(0, 5).join(' '), description);
+    const identityScore = objectIdentityScore(query, description);
     const specs = specificationCompatibility(query, description);
+    const identifiers = identifierCompatibility(query, description);
     const evidence = semanticEvidence(query, description);
     const score = Math.min(100, Math.max(0, Math.round(
-      (lexical * 0.43) + (pdm._score * 0.25) + (objectScore * 0.18) + (specs.score * 0.14)
+      (lexical * 0.22) + (pdm._score * 0.16) + (objectScore * 0.13) + (identityScore * 0.27)
+      + (specs.score * 0.12) + (identifiers.score * 0.10)
       - constraintPenalty(query, description),
     )));
     const reasons = [];
     if (objectScore >= 75) reasons.push('objeto principal compatível');
     if (specs.total && specs.matched) reasons.push('medidas compatíveis');
     if (phraseScore(query, description) >= 35) reasons.push('descrição próxima');
+    if (identifiers.total && identifiers.matched) reasons.push('referencia exata');
     return {
       codigoItem: item.codigoItem,
       descricaoItem: item.descricaoItem || item.nomePdm,
@@ -452,6 +590,7 @@ async function searchCatmat(query, limit) {
       reasons,
       _headMatch: headMatches(query, description),
       _primaryMatch: primaryObjectMatches(query, description),
+      _identityScore: identityScore,
       _semanticMatch: pdm._preferred || objectScore >= 48 || (pdm._objectScore >= 50 && lexical >= 34),
       _preferredPdm: pdm._preferred,
       _officialPdm: Boolean(pdm._official),
@@ -459,10 +598,11 @@ async function searchCatmat(query, limit) {
   }).filter((item) => {
     if (!item.codigoItem || seen.has(item.codigoItem)) return false;
     seen.add(item.codigoItem);
-    const threshold = item._preferredPdm ? 24 : (item._officialPdm ? 22 : 30);
-    return item._preferredPdm ? item.score >= threshold : (item._primaryMatch && item.score >= threshold);
+    const threshold = item._preferredPdm ? 30 : (item._officialPdm ? 34 : 40);
+    const domainMatch = matchedConcepts(query).length ? item._identityScore >= 70 : item._primaryMatch;
+    return domainMatch && item.score >= threshold;
   }).sort((a, b) => b.score - a.score).slice(0, limit)
-    .map(({ _headMatch, _primaryMatch, _semanticMatch, _preferredPdm, _officialPdm, ...item }) => item);
+    .map(({ _headMatch, _primaryMatch, _identityScore, _semanticMatch, _preferredPdm, _officialPdm, ...item }) => item);
 }
 
 function unwrapList(value) {
@@ -531,11 +671,14 @@ function materialSimilarity(query, catmatDescription, candidate, requestedUnit, 
   const queryScore = similarity(query, candidate);
   const catalogScore = similarity(catmatDescription, candidate);
   const objectScore = lateInteractionScore(anchorTokens(query).slice(0, 6).join(' '), candidate);
+  const identityScore = objectIdentityScore(query, candidate);
   const specs = specificationCompatibility(query, candidate);
+  const identifiers = identifierCompatibility(query, candidate);
   const unitScore = unitCompatibility(requestedUnit, offeredUnit);
   const score = Math.min(100, Math.max(0, Math.round(
-    (queryScore * 0.42) + (catalogScore * 0.24) + (objectScore * 0.14) + (specs.score * 0.12)
-    + (unitScore * 0.08) - constraintPenalty(query, candidate),
+    (queryScore * 0.27) + (catalogScore * 0.20) + (objectScore * 0.12) + (identityScore * 0.18)
+    + (specs.score * 0.09) + (identifiers.score * 0.08) + (unitScore * 0.06)
+    - constraintPenalty(query, candidate),
   )));
   const reasons = [];
   if (catalogScore >= 72) reasons.push('mesmo material CATMAT');
@@ -545,7 +688,7 @@ function materialSimilarity(query, catmatDescription, candidate, requestedUnit, 
   return {
     score,
     reasons,
-    details: { query: queryScore, catalog: catalogScore, object: objectScore, specifications: specs.score, unit: unitScore },
+    details: { query: queryScore, catalog: catalogScore, object: objectScore, identity: identityScore, specifications: specs.score, identifiers: identifiers.score, unit: unitScore },
   };
 }
 

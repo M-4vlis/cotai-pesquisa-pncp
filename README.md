@@ -18,6 +18,7 @@ O produto deve exigir o mínimo possível de recursos de servidor. Planilhas, pe
 - Cada preço mostra o número do item no PNCP e abre diretamente a página da contratação correspondente no portal.
 - O ranking seleciona os resultados mais comparáveis antes de ordenar por preço.
 - A classificação CATMAT usa recuperação em múltiplas consultas, fusão de rankings e reranqueamento por PDM, classe, grupo, objeto principal, sinônimos, variações ortográficas, medidas e características. Quando a busca textual não basta, entra uma busca hierárquica de contingência.
+- Materiais de manutenção e construção civil recebem expansão de consulta e validação especializada para hidráulica, elétrica, alvenaria, pintura, ferragens, soldagem, ferramentas e manutenção mecânica.
 - A similaridade dos preços considera separadamente descrição, objeto, CATMAT, unidade, números e medidas, com penalidades para especificações incompatíveis; não há mais pontuação mínima artificial.
 - A interface acompanha as quatro etapas da pesquisa, mostra indicadores consolidados e organiza os resultados em uma tabela responsiva.
 

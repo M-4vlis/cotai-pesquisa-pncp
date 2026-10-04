@@ -65,7 +65,7 @@ function renderItems() {
     const catmat = item.catmat
       ? `<span class="catmat-chip">${esc(item.catmat.codigoItem)}</span>${esc(item.catmat.nomePdm || item.catmat.descricaoItem)}`
       : `<span class="pending-chip">${item.catalogError ? 'Não identificado' : 'Aguardando busca'}</span>`;
-    return `<tr><td>${index + 1}</td><td>${esc(item.descricao)}</td><td>${esc(item.unidade || '—')}</td><td>${esc(item.quantidade || '—')}</td><td>${catmat}</td></tr>`;
+    return `<tr><td data-label="Item">${index + 1}</td><td data-label="Descrição">${esc(item.descricao)}</td><td data-label="Unidade">${esc(item.unidade || '—')}</td><td data-label="Quantidade">${esc(item.quantidade || '—')}</td><td data-label="CATMAT">${catmat}</td></tr>`;
   }).join('');
   $('itemsWrap').classList.toggle('hidden', !state.items.length);
   $('itemSummary').textContent = state.items.length ? `${state.items.length} item(ns) pronto(s) para pesquisa.` : 'Nenhum item importado.';
@@ -263,12 +263,12 @@ function renderResults() {
   const rows = [];
   state.results.forEach((group, groupIndex) => {
     if (!group.found?.length) {
-      rows.push(`<tr class="empty-row"><td>${groupIndex + 1}</td><td class="item-name">${esc(group.item.descricao)}</td><td>—</td><td>${catalogCell(group)}</td><td colspan="4">${esc(group.message || 'Nenhum preço comparável atingiu os critérios definidos.')}</td></tr>`);
+      rows.push(`<tr class="empty-row"><td data-label="Item">${groupIndex + 1}</td><td data-label="Material" class="item-name">${esc(group.item.descricao)}</td><td data-label="Similaridade">—</td><td data-label="CATMAT">${catalogCell(group)}</td><td data-label="Resultado" colspan="4">${esc(group.message || 'Nenhum preço comparável atingiu os critérios definidos.')}</td></tr>`);
       return;
     }
     group.found.forEach((result, resultIndex) => {
       const reasons = result.matchReasons?.length ? result.matchReasons.join(' · ') : 'Comparação por descrição e especificações';
-      rows.push(`<tr><td>${groupIndex + 1}.${resultIndex + 1}</td><td class="item-name">${esc(group.item.descricao)}<small>${esc(reasons)}</small></td><td><span class="match-pill ${scoreClass(result.score)}">${result.score}%</span></td><td>${catalogCell(group)}</td><td class="price-cell"><strong>${money(result.valor)}</strong><small>Item ${esc(result.numeroItemPncp || '—')} · ${esc(result.descricao)}</small></td><td>${esc(result.unidade || '—')}</td><td class="agency-date">${esc(result.orgao || '—')}<small>${formatDate(result.data)} · <span class="type-pill">${esc(result.tipo || 'Registro')}</span></small></td><td><a class="official-link" href="${esc(result.link)}" target="_blank" rel="noopener">↗ Abrir compra</a></td></tr>`);
+      rows.push(`<tr><td data-label="Item">${groupIndex + 1}.${resultIndex + 1}</td><td data-label="Material" class="item-name">${esc(group.item.descricao)}<small>${esc(reasons)}</small></td><td data-label="Similaridade"><span class="match-pill ${scoreClass(result.score)}">${result.score}%</span></td><td data-label="CATMAT">${catalogCell(group)}</td><td data-label="Preço / PNCP" class="price-cell"><strong>${money(result.valor)}</strong><small>Item ${esc(result.numeroItemPncp || '—')} · ${esc(result.descricao)}</small></td><td data-label="Unidade">${esc(result.unidade || '—')}</td><td data-label="Órgão / data" class="agency-date">${esc(result.orgao || '—')}<small>${formatDate(result.data)} · <span class="type-pill">${esc(result.tipo || 'Registro')}</span></small></td><td data-label="Fonte"><a class="official-link" href="${esc(result.link)}" target="_blank" rel="noopener">↗ Abrir compra</a></td></tr>`);
     });
   });
   body.innerHTML = rows.join('');
