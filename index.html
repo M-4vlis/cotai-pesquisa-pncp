@@ -20,13 +20,14 @@
         <a class="brand" href="#nova-pesquisa" aria-label="CotAí - início">
           <span class="brand-mark" aria-hidden="true"></span>
           <span><strong>CotAí</strong><small>Pesquisa inteligente</small></span>
-          <em>v2.3</em>
+          <em>v2.4</em>
         </a>
 
         <nav class="side-nav">
           <a class="active" href="#nova-pesquisa"><span>⌂</span>Nova pesquisa</a>
           <a href="#resultados"><span>↻</span>Resultados</a>
           <button id="sampleButton" type="button"><span>▤</span>Usar modelo</button>
+          <a id="catmatSearchNav" href="#buscar-catmat"><span>⌕</span>Buscar CATMAT</a>
           <a href="#configuracao"><span>⚙</span>Configurações</a>
         </nav>
 
@@ -68,6 +69,27 @@
             <div class="process-step" id="process3"><b>3</b><span><strong>Consulta ao PNCP</strong><small>Comparamos compras públicas.</small></span></div>
             <i aria-hidden="true">›</i>
             <div class="process-step" id="process4"><b>4</b><span><strong>Resultados</strong><small>Você valida e exporta.</small></span></div>
+          </section>
+
+          <section class="catmat-search-screen card" id="buscar-catmat">
+            <div class="catmat-search-copy">
+              <span class="catmat-search-icon" aria-hidden="true">⌕</span>
+              <div>
+                <span class="eyebrow">Consulta rápida</span>
+                <h2>Buscar CATMAT</h2>
+                <p>Descreva o material para localizar a melhor correspondência no catálogo oficial.</p>
+              </div>
+            </div>
+            <form class="catmat-search-form" id="catmatSearchForm">
+              <label for="catmatSearchInput">Nome ou descrição do material</label>
+              <div>
+                <input id="catmatSearchInput" type="search" minlength="3" maxlength="300" autocomplete="off" placeholder="Ex.: caneta esferográfica azul, ponta média 1,0 mm" />
+                <button id="catmatSearchButton" type="submit"><span>⌕</span> Buscar CATMAT</button>
+              </div>
+              <small>Inclua medidas, material, cor e outras características para melhorar a identificação.</small>
+            </form>
+            <p id="catmatSearchStatus" class="catmat-search-status" aria-live="polite"></p>
+            <div id="catmatSearchResults" class="catmat-search-results hidden"></div>
           </section>
 
           <section class="research-grid">

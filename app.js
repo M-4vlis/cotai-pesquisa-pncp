@@ -167,6 +167,77 @@ async function findCatmatWithRetry(description) {
   return { items: [] };
 }
 
+function catmatResultCard(item, primary = false) {
+  const reasons = (item.reasons || []).map((reason) => `<span>${esc(reason)}</span>`).join('');
+  const score = Number(item.score) || 0;
+  return `<article class="${primary ? 'catmat-best-result' : 'catmat-alternative-result'}">
+    ${primary ? '<b class="catmat-best-label">Melhor correspondência estimada</b>' : ''}
+    <div class="catmat-result-heading"><div><strong>${esc(item.codigoItem)}</strong><small>Código CATMAT</small></div><button type="button" class="copy-catmat" data-code="${esc(item.codigoItem)}">Copiar código</button></div>
+    <h3>${esc(item.nomePdm || 'Material')}</h3>
+    <p>${esc(item.descricaoItem || item.nomePdm || 'Descrição oficial não informada.')}</p>
+    <div class="catmat-result-meta"><span class="match-pill ${scoreClass(score)}">${score}% compatível</span>${item.codigoPdm ? `<span>PDM ${esc(item.codigoPdm)}</span>` : ''}</div>
+    ${reasons ? `<div class="catmat-result-reasons">${reasons}</div>` : ''}
+  </article>`;
+}
+
+async function searchCatmatDirectory(event) {
+  event.preventDefault();
+  const input = $('catmatSearchInput');
+  const button = $('catmatSearchButton');
+  const results = $('catmatSearchResults');
+  const feedback = $('catmatSearchStatus');
+  const query = input.value.trim();
+  if (query.length < 3) {
+    feedback.textContent = 'Digite ao menos três caracteres para buscar.';
+    feedback.classList.add('error');
+    input.focus();
+    return;
+  }
+
+  button.disabled = true;
+  button.innerHTML = '<span>◌</span> Buscando…';
+  feedback.textContent = 'Consultando e comparando materiais do catálogo oficial…';
+  feedback.classList.remove('error');
+  results.classList.add('hidden');
+  results.innerHTML = '';
+  try {
+    const catalog = await findCatmatWithRetry(query);
+    const items = catalog.items || [];
+    if (!items.length) {
+      feedback.textContent = 'Nenhum CATMAT compatível foi localizado. Tente incluir o tipo, material, medida ou finalidade do item.';
+      return;
+    }
+    const [best, ...alternatives] = items;
+    results.innerHTML = `${catmatResultCard(best, true)}${alternatives.length ? `<div class="catmat-alternatives"><div class="catmat-alternatives-title"><h3>Outras possibilidades</h3><span>${alternatives.length} alternativa${alternatives.length > 1 ? 's' : ''}</span></div><div class="catmat-alternatives-grid">${alternatives.map((item) => catmatResultCard(item)).join('')}</div></div>` : ''}`;
+    results.classList.remove('hidden');
+    feedback.textContent = `${items.length} correspondência${items.length > 1 ? 's' : ''} encontrada${items.length > 1 ? 's' : ''}. Confira a descrição oficial antes de usar o código.`;
+  } catch (error) {
+    feedback.textContent = error.message || 'Não foi possível consultar o catálogo agora.';
+    feedback.classList.add('error');
+  } finally {
+    button.disabled = false;
+    button.innerHTML = '<span>⌕</span> Buscar CATMAT';
+  }
+}
+
+async function copyCatmat(code, button) {
+  try {
+    await navigator.clipboard.writeText(String(code));
+  } catch {
+    const field = document.createElement('textarea');
+    field.value = String(code);
+    field.style.position = 'fixed';
+    field.style.opacity = '0';
+    document.body.appendChild(field);
+    field.select();
+    document.execCommand('copy');
+    field.remove();
+  }
+  const original = button.textContent;
+  button.textContent = 'Código copiado';
+  setTimeout(() => { button.textContent = original; }, 1600);
+}
+
 function setProgress(current, total) {
   $('progressWrap').classList.remove('hidden');
   $('progressWrap').setAttribute('aria-hidden', 'false');
@@ -464,6 +535,11 @@ function csv() {
 
 $('fileInput').addEventListener('change', (event) => event.target.files[0] && importFile(event.target.files[0]));
 $('sampleButton').onclick = sample;
+$('catmatSearchForm').addEventListener('submit', searchCatmatDirectory);
+$('catmatSearchResults').addEventListener('click', (event) => {
+  const button = event.target.closest('.copy-catmat');
+  if (button) copyCatmat(button.dataset.code, button);
+});
 $('searchButton').onclick = search;
 $('exportButton').onclick = csv;
 $('clearButton').onclick = async () => {
@@ -478,6 +554,10 @@ fields.forEach((id) => $(id).addEventListener('change', () => { updateControls()
 $('resultCount').addEventListener('input', updateControls);
 $('minScore').addEventListener('input', updateControls);
 $('globalSearch').addEventListener('input', filterRows);
+document.querySelectorAll('.side-nav a').forEach((link) => link.addEventListener('click', () => {
+  document.querySelectorAll('.side-nav a').forEach((item) => item.classList.remove('active'));
+  link.classList.add('active');
+}));
 $('resultsTableBody').addEventListener('click', (event) => {
   const button = event.target.closest('.catmat-option, .catmat-refresh');
   if (button) {
