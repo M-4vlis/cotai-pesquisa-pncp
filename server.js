@@ -885,6 +885,29 @@ function materialSimilarity(query, catmatDescription, candidate, requestedUnit, 
   };
 }
 
+async function lookupCatmat(code) {
+  const normalizedCode = String(code || '').trim();
+  if (!/^\d{1,12}$/.test(normalizedCode)) return null;
+  const params = new URLSearchParams({
+    pagina: '1',
+    tamanhoPagina: '10',
+    codigoItem: normalizedCode,
+    statusItem: 'true',
+  });
+  const payload = await fetchJson(
+    `${comprasBase}/modulo-material/4_consultarItemMaterial?${params}`,
+    { timeout: 18000, retries: 2, ttl: 86400000 },
+  );
+  const record = (payload.resultado || []).find((item) => String(item.codigoItem) === normalizedCode);
+  if (!record) return null;
+  return {
+    codigoItem: String(record.codigoItem),
+    descricaoItem: record.descricaoItem || record.nomePdm || '',
+    codigoPdm: record.codigoPdm,
+    nomePdm: record.nomePdm || 'CATMAT',
+  };
+}
+
 async function searchPrices({ query, unit, catmat, catmatDescription, catmatScore = 0, start, end, limit, minScore }) {
   let payload;
   let lastError;
@@ -1055,23 +1078,52 @@ export default {
     }
 
     if (url.pathname === '/api/prices') {
+      let rawInput;
+      if (request.method === 'POST') {
+        try { rawInput = await request.json(); } catch { return json({ message: 'Os dados da pesquisa são inválidos.' }, 400); }
+      } else {
+        rawInput = {
+          query: url.searchParams.get('q'),
+          unit: url.searchParams.get('unit'),
+          catmat: url.searchParams.get('catmat'),
+          catmatDescription: url.searchParams.get('catmatDescription'),
+          catmatScore: url.searchParams.get('catmatScore'),
+          start: url.searchParams.get('start'),
+          end: url.searchParams.get('end'),
+          limit: url.searchParams.get('limit'),
+          minScore: url.searchParams.get('minScore'),
+        };
+      }
       const input = {
-        query: (url.searchParams.get('q') || '').trim(),
-        unit: (url.searchParams.get('unit') || '').trim(),
-        catmat: url.searchParams.get('catmat') || '',
-        catmatDescription: url.searchParams.get('catmatDescription') || '',
-        catmatScore: Number(url.searchParams.get('catmatScore')) || 0,
-        start: url.searchParams.get('start') || '',
-        end: url.searchParams.get('end') || '',
-        limit: Math.min(10, Number(url.searchParams.get('limit')) || 5),
-        minScore: Number(url.searchParams.get('minScore')) || 65,
+        query: String(rawInput.query || '').trim().slice(0, 500),
+        unit: String(rawInput.unit || '').trim().slice(0, 40),
+        catmat: String(rawInput.catmat || '').trim(),
+        catmatDescription: String(rawInput.catmatDescription || '').trim().slice(0, 1000),
+        catmatScore: Number(rawInput.catmatScore) || 0,
+        start: String(rawInput.start || ''),
+        end: String(rawInput.end || ''),
+        limit: Math.min(10, Math.max(1, Number(rawInput.limit) || 5)),
+        minScore: Math.min(100, Math.max(30, Number(rawInput.minScore) || 65)),
       };
-      if (!input.query || !input.catmat || !/^\d{4}-\d{2}-\d{2}$/.test(input.start) || !/^\d{4}-\d{2}-\d{2}$/.test(input.end)) {
+      if (!input.query || !/^\d{1,12}$/.test(input.catmat) || !/^\d{4}-\d{2}-\d{2}$/.test(input.start) || !/^\d{4}-\d{2}-\d{2}$/.test(input.end)) {
         return json({ message: 'Os dados da pesquisa estão incompletos.' }, 400);
       }
+      let confirmedCatmat;
+      try {
+        confirmedCatmat = await lookupCatmat(input.catmat);
+      } catch {
+        return json({ message: 'Não foi possível validar o CATMAT no catálogo oficial agora. Tente novamente em alguns minutos.' }, 503);
+      }
+      if (!confirmedCatmat) return json({ message: `O CATMAT ${input.catmat} não foi localizado no catálogo oficial.` }, 404);
+      input.catmatDescription = confirmedCatmat.descricaoItem || confirmedCatmat.nomePdm || input.catmatDescription;
+      input.catmatScore = 100;
       try {
         const items = await searchPrices(input);
-        return json({ items, message: items.length ? '' : 'Nenhum preço comparável foi localizado no PNCP para este CATMAT e período.' });
+        return json({
+          catmat: { ...confirmedCatmat, score: 100, confidence: 'confirmado' },
+          items,
+          message: items.length ? '' : 'A consulta ao PNCP foi concluída, mas nenhum preço foi localizado para este CATMAT e período.',
+        });
       } catch {
         return json({ message: 'O PNCP está demorando para responder. Aguarde um momento e tente novamente.' }, 503);
       }

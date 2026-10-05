@@ -295,39 +295,60 @@ function groupCandidates(group) {
   return [...unique.values()];
 }
 
+function manualCatmatControl(group, groupIndex) {
+  const content = `<form class="catmat-manual" data-group="${groupIndex}">
+    <label for="manualCatmat-${groupIndex}">Código CATMAT</label>
+    <span><input id="manualCatmat-${groupIndex}" name="catmat" inputmode="numeric" autocomplete="off" pattern="[0-9]+" maxlength="12" placeholder="Ex.: 461889" aria-label="Código CATMAT do item ${groupIndex + 1}" ${group.loading ? 'disabled' : ''} /><button type="submit" ${group.loading ? 'disabled' : ''}>Pesquisar</button></span>
+    <small>Informe apenas os números. O código será validado no catálogo oficial.</small>
+  </form>`;
+  return `<details class="catmat-manual-wrap" ${group.catmat ? '' : 'open'}><summary>Informar CATMAT manualmente</summary>${content}</details>`;
+}
+
 function catalogCell(group, groupIndex, allowChoice = true) {
-  if (!group.catmat) return '<span class="pending-chip">Não identificado</span>';
+  if (!group.catmat) return `<div class="catalog-detail"><span class="pending-chip">Não identificado</span>${allowChoice ? manualCatmatControl(group, groupIndex) : ''}</div>`;
   const reason = group.catmat.selectionReason ? `<span class="selection-reason">${esc(group.catmat.selectionReason)}</span>` : '';
   const alternatives = groupCandidates(group).filter((candidate) => String(candidate.codigoItem) !== String(group.catmat.codigoItem));
   const choices = allowChoice && alternatives.length
     ? `<details class="catmat-choices"><summary>Escolher outro CATMAT</summary><div class="catmat-options">${alternatives.map((item) => `<button type="button" class="catmat-option" data-group="${groupIndex}" data-code="${esc(item.codigoItem)}" ${group.loading ? 'disabled' : ''}><strong>${esc(item.codigoItem)} · ${esc(item.nomePdm || 'CATMAT')}</strong><span>${esc(item.descricaoItem || item.nomePdm)}</span><em>${esc(item.score)}% · Pesquisar preços</em></button>`).join('')}</div></details>` : '';
   const refresh = allowChoice ? `<button type="button" class="catmat-refresh" data-group="${groupIndex}" data-code="${esc(group.catmat.codigoItem)}" ${group.loading ? 'disabled' : ''}>↻ ${group.loading ? 'Buscando preços…' : 'Consultar este CATMAT'}</button>` : '';
-  return `<div class="catalog-detail"><span class="catmat-code">${esc(group.catmat.codigoItem)}</span><small>${esc(group.catmat.descricaoItem || group.catmat.nomePdm)}</small>${reason}${choices}${refresh}</div>`;
+  return `<div class="catalog-detail"><span class="catmat-code">${esc(group.catmat.codigoItem)}</span><small>${esc(group.catmat.descricaoItem || group.catmat.nomePdm)}</small>${reason}${choices}${refresh}${allowChoice ? manualCatmatControl(group, groupIndex) : ''}</div>`;
 }
 
-async function chooseCatmat(groupIndex, code) {
+async function chooseCatmat(groupIndex, code, manual = false) {
   const group = state.results[groupIndex];
   if (!group || group.loading) return;
   const candidates = groupCandidates(group);
-  const candidate = candidates.find((item) => String(item.codigoItem) === String(code));
+  const normalizedCode = String(code || '').replace(/\D/g, '');
+  if (!normalizedCode) return status('Informe um código CATMAT numérico.', true);
+  const candidate = candidates.find((item) => String(item.codigoItem) === normalizedCode)
+    || (manual ? { codigoItem: normalizedCode, descricaoItem: 'Validando código informado…', nomePdm: 'CATMAT informado', score: 0 } : null);
   if (!candidate) return status('O CATMAT escolhido não está mais disponível nesta pesquisa.', true);
   let period;
   try { period = getPeriod(); } catch (error) { return status(error.message, true); }
 
+  const previous = {
+    catmat: group.catmat,
+    itemCatmat: group.item.catmat,
+    alternatives: group.alternatives,
+    found: group.found,
+    message: group.message,
+  };
+  const requestId = `${Date.now()}-${Math.random()}`;
   group.loading = true;
+  group.priceRequestId = requestId;
   group.candidates = candidates;
-  group.catmat = { ...candidate, selectionReason: 'Selecionado manualmente pelo usuário' };
+  group.catmat = { ...candidate, selectionReason: manual ? 'CATMAT informado pelo usuário' : 'Selecionado manualmente pelo usuário' };
   group.item.catmat = group.catmat;
   group.alternatives = candidates.filter((item) => String(item.codigoItem) !== String(candidate.codigoItem));
   group.found = [];
-  group.message = 'Consultando preços para o CATMAT escolhido…';
+  group.message = manual ? 'Validando o CATMAT e consultando preços no PNCP…' : 'Consultando preços no PNCP para o CATMAT escolhido…';
   renderItems();
   renderResults();
-  status(`Consultando o CATMAT ${candidate.codigoItem} no PNCP…`);
+  status(`${manual ? 'Validando e consultando' : 'Consultando'} o CATMAT ${candidate.codigoItem} no PNCP…`);
 
   try {
-    const prices = await withRetries(() => api('/api/prices', {
-      q: group.item.descricao,
+    const prices = await withRetries(() => postApi('/api/prices', {
+      query: group.item.descricao,
       unit: group.item.unidade || '',
       catmat: candidate.codigoItem,
       catmatDescription: candidate.descricaoItem || candidate.nomePdm || '',
@@ -337,19 +358,38 @@ async function chooseCatmat(groupIndex, code) {
       limit: $('resultCount').value,
       minScore: $('minScore').value,
     }), 2);
+    if (group.priceRequestId !== requestId) return;
+    const confirmed = prices.catmat || candidate;
+    group.catmat = {
+      ...confirmed,
+      selectionReason: manual ? 'CATMAT informado e validado pelo usuário' : 'CATMAT escolhido pelo usuário',
+    };
+    group.item.catmat = group.catmat;
+    group.candidates = groupCandidates({ ...group, catmat: group.catmat });
+    group.alternatives = group.candidates.filter((item) => String(item.codigoItem) !== String(group.catmat.codigoItem));
     group.found = prices.items || [];
     group.message = prices.message || '';
     status(group.found.length
-      ? `${group.found.length} preço(s) encontrado(s) para o CATMAT ${candidate.codigoItem}.`
-      : (group.message || `Nenhum preço localizado para o CATMAT ${candidate.codigoItem}.`));
+      ? `${group.found.length} preço(s) encontrado(s) no PNCP para o CATMAT ${group.catmat.codigoItem}.`
+      : (group.message || `Nenhum preço localizado no PNCP para o CATMAT ${group.catmat.codigoItem}.`));
   } catch (error) {
-    group.found = [];
-    group.message = `${error.message} Use “Consultar este CATMAT” para tentar novamente.`;
+    if (group.priceRequestId !== requestId) return;
+    group.catmat = previous.catmat;
+    group.item.catmat = previous.itemCatmat;
+    group.alternatives = previous.alternatives;
+    group.found = previous.found;
+    group.message = manual
+      ? `${error.message} Confira o código informado e tente novamente.`
+      : `${error.message} Use “Consultar este CATMAT” para tentar novamente.`;
     status(group.message, true);
   } finally {
-    group.loading = false;
-    await save();
-    renderResults();
+    if (group.priceRequestId === requestId) {
+      group.loading = false;
+      delete group.priceRequestId;
+      await save();
+      renderItems();
+      renderResults();
+    }
   }
 }
 
@@ -440,7 +480,19 @@ $('minScore').addEventListener('input', updateControls);
 $('globalSearch').addEventListener('input', filterRows);
 $('resultsTableBody').addEventListener('click', (event) => {
   const button = event.target.closest('.catmat-option, .catmat-refresh');
-  if (button) chooseCatmat(Number(button.dataset.group), button.dataset.code);
+  if (button) {
+    event.preventDefault();
+    chooseCatmat(Number(button.dataset.group), button.dataset.code);
+  }
+});
+$('resultsTableBody').addEventListener('submit', (event) => {
+  const form = event.target.closest('.catmat-manual');
+  if (!form) return;
+  event.preventDefault();
+  const input = form.elements.catmat;
+  const code = String(input.value || '').replace(/\D/g, '');
+  input.value = code;
+  chooseCatmat(Number(form.dataset.group), code, true);
 });
 document.addEventListener('keydown', (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); $('globalSearch').focus(); }
