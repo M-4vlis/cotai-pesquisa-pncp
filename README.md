@@ -28,6 +28,7 @@ O produto deve exigir o mínimo possível de recursos de servidor. Planilhas, pe
 - A identidade visual utiliza o logotipo oficial do CotAí em formato ICO multirresolução, com variantes para os temas claro e escuro. A interface acompanha automaticamente o modo do sistema operacional e oferece um seletor manual cuja preferência fica salva no navegador.
 - As consultas externas usam fila com concorrência limitada, cache compartilhado, reaproveitamento de requisições idênticas, espera exponencial com variação aleatória, respeito ao `Retry-After`, paginação reduzida de contingência e confirmação incremental dos links do PNCP.
 - A interface acompanha as quatro etapas da pesquisa, mostra indicadores consolidados e organiza os resultados em uma tabela responsiva.
+- A página de resultados usa colunas proporcionais, contraste reforçado no modo escuro e cartões legíveis em telas pequenas.
 
 ## Executar localmente
 
