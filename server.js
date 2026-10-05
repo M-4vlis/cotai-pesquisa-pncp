@@ -1,6 +1,7 @@
 const html = "__COTAI_HTML__";
 const ogImageBase64 = "__COTAI_OG_BASE64__";
 const logoIconBase64 = "__COTAI_LOGO_ICO_BASE64__";
+const darkLogoIconBase64 = "__COTAI_DARK_LOGO_ICO_BASE64__";
 const memoryCache = new Map();
 const inflightRequests = new Map();
 const upstreamWaiters = [];
@@ -1069,6 +1070,11 @@ export default {
     }
     if (url.pathname === '/logo-cotai.ico') {
       const binary = atob(logoIconBase64);
+      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      return new Response(bytes, { headers: { 'content-type': 'image/x-icon', 'cache-control': 'public, max-age=604800' } });
+    }
+    if (url.pathname === '/logo-cotai-dark.ico') {
+      const binary = atob(darkLogoIconBase64);
       const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
       return new Response(bytes, { headers: { 'content-type': 'image/x-icon', 'cache-control': 'public, max-age=604800' } });
     }

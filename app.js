@@ -81,16 +81,26 @@ function setStage(active, complete = false) {
 
 function renderItems() {
   $('itemsBody').innerHTML = state.items.map((item, index) => {
-    const catmat = item.catmat
-      ? `<span class="catmat-chip">${esc(item.catmat.codigoItem)}</span>${esc(item.catmat.nomePdm || item.catmat.descricaoItem)}`
+    const catmatCode = item.catmat
+      ? `<span class="catmat-chip">${esc(item.catmat.codigoItem)}</span>`
       : `<span class="pending-chip">${item.catalogError ? 'Não identificado' : 'Aguardando busca'}</span>`;
-    return `<tr><td data-label="Item">${index + 1}</td><td data-label="Descrição">${esc(item.descricao)}</td><td data-label="Unidade">${esc(item.unidade || '—')}</td><td data-label="Quantidade">${esc(item.quantidade || '—')}</td><td data-label="CATMAT">${catmat}</td></tr>`;
+    const materialName = item.catmat ? esc(item.catmat.nomePdm || item.catmat.descricaoItem) : '—';
+    return `<tr><td data-label="Item">${index + 1}</td><td data-label="Descrição">${esc(item.descricao)}</td><td data-label="Unidade">${esc(item.unidade || '—')}</td><td data-label="Quantidade">${esc(item.quantidade || '—')}</td><td data-label="Código CATMAT">${catmatCode}</td><td data-label="Nome do material">${materialName}</td></tr>`;
   }).join('');
+  filterImportedItems();
   $('itemsWrap').classList.toggle('hidden', !state.items.length);
   $('itemSummary').textContent = state.items.length ? `${state.items.length} item(ns) pronto(s) para pesquisa.` : 'Nenhum item importado.';
   $('itemSummary').classList.toggle('success', state.items.length > 0);
   if (state.items.length && !state.results.length) setStage(2);
   updateControls();
+}
+
+function filterImportedItems() {
+  const query = String($('itemFilter')?.value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  document.querySelectorAll('#itemsBody tr').forEach((row) => {
+    const content = row.textContent.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    row.classList.toggle('filtered-out', Boolean(query) && !content.includes(query));
+  });
 }
 
 function normalizeHeader(value = '') {
@@ -282,6 +292,9 @@ async function search() {
   let period;
   try { period = getPeriod(); } catch (error) { return status(error.message, true); }
   persistSettings();
+  document.querySelector('.launch-card')?.classList.add('is-searching');
+  $('pncpTitle').textContent = 'Consultando o PNCP…';
+  $('pncpSubtitle').textContent = 'Estamos buscando preços públicos comparáveis para os seus itens.';
   $('searchButton').disabled = true;
   $('searchButton').innerHTML = '<span>◌</span>Pesquisando…';
   state.results = [];
@@ -360,6 +373,9 @@ async function search() {
   } catch (error) {
     status(error.message || 'Não foi possível concluir a pesquisa agora.', true);
   } finally {
+    document.querySelector('.launch-card')?.classList.remove('is-searching');
+    $('pncpTitle').textContent = 'Pronto para pesquisar';
+    $('pncpSubtitle').textContent = 'Busque preços públicos comparáveis para todos os itens importados.';
     $('searchButton').disabled = false;
     $('searchButton').innerHTML = '<span>▶</span>Iniciar pesquisa <i>›</i>';
     setTimeout(() => $('progressWrap').classList.add('hidden'), 1000);
@@ -556,6 +572,18 @@ function csv() {
   URL.revokeObjectURL(link.href);
 }
 
+function downloadTemplate() {
+  const rows = [
+    { Descrição: 'Papel sulfite A4, 75 g/m², branco', Unidade: 'Resma', Quantidade: 20 },
+    { Descrição: 'Caneta esferográfica azul, ponta média', Unidade: 'Unidade', Quantidade: 100 },
+    { Descrição: 'Lâmpada LED bulbo 12 W bivolt', Unidade: 'Unidade', Quantidade: 30 },
+  ];
+  const workbook = XLSX.utils.book_new();
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Itens');
+  XLSX.writeFile(workbook, 'modelo-cotai.xlsx');
+}
+
 $('fileInput').addEventListener('change', (event) => event.target.files[0] && importFile(event.target.files[0]));
 $('sampleButton').onclick = sample;
 $('catmatSearchForm').addEventListener('submit', searchCatmatDirectory);
@@ -564,6 +592,8 @@ $('catmatSearchResults').addEventListener('click', (event) => {
   if (button) copyCatmat(button.dataset.code, button);
 });
 $('searchButton').onclick = search;
+$('downloadTemplateButton').onclick = downloadTemplate;
+$('itemFilter').addEventListener('input', filterImportedItems);
 $('exportButton').onclick = csv;
 $('clearButton').onclick = async () => {
   state = { items: [], results: [], settings: {} };

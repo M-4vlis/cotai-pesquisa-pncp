@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
     <meta name="description" content="Pesquisa inteligente de preços públicos com identificação CATMAT e consulta ao PNCP." />
     <meta property="og:title" content="CotAí · Pesquisa inteligente de preços" />
     <meta property="og:description" content="Importe sua planilha, identifique o CATMAT e encontre preços públicos comparáveis com evidências." />
@@ -12,14 +13,26 @@
     <meta name="twitter:card" content="summary_large_image" />
     <title>CotAí · Pesquisa inteligente de preços</title>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
-    <link rel="icon" type="image/x-icon" href="/logo-cotai.ico" />
+    <script>
+      (() => {
+        const preference = window.matchMedia('(prefers-color-scheme: dark)');
+        const applyTheme = () => {
+          document.documentElement.dataset.theme = preference.matches ? 'dark' : 'light';
+          document.documentElement.style.colorScheme = preference.matches ? 'dark' : 'light';
+        };
+        applyTheme();
+        preference.addEventListener?.('change', applyTheme);
+      })();
+    </script>
+    <link rel="icon" type="image/x-icon" href="/logo-cotai.ico" media="(prefers-color-scheme: light)" />
+    <link rel="icon" type="image/x-icon" href="/logo-cotai-dark.ico" media="(prefers-color-scheme: dark)" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <div class="app-shell">
       <aside class="sidebar" aria-label="Navegação principal">
         <a class="brand" href="#nova-pesquisa" data-page-target="nova-pesquisa" aria-label="CotAí - início">
-          <span class="brand-logo-frame"><img src="/logo-cotai.ico" alt="CotAí — Pesquisa inteligente" /></span>
+          <span class="brand-logo-frame"><picture><source media="(prefers-color-scheme: dark)" srcset="/logo-cotai-dark.ico" /><img src="/logo-cotai.ico" alt="CotAí — Pesquisa inteligente" /></picture></span>
         </a>
 
         <nav class="side-nav">
@@ -36,7 +49,7 @@
         <header class="topbar">
           <label class="global-search">
             <span aria-hidden="true"></span>
-            <input id="globalSearch" type="search" placeholder="Filtrar resultados..." aria-label="Filtrar resultados" />
+            <input id="globalSearch" type="search" placeholder="Filtrar resultados, buscar itens, códigos CATMAT..." aria-label="Filtrar resultados" />
             <kbd>Ctrl K</kbd>
           </label>
           <div class="local-profile">
@@ -48,31 +61,31 @@
         <main>
           <section class="app-page active" id="nova-pesquisa" data-app-page>
             <div class="page-heading">
-              <div><span class="heading-icon" aria-hidden="true">⌕</span><div><h1>Nova pesquisa de preços</h1><p>Envie sua planilha e encontre preços públicos comparáveis.</p></div></div>
+              <div><span class="heading-icon" aria-hidden="true">⌕</span><div><h1>Nova pesquisa de preços</h1><p>Envie sua planilha e encontre preços públicos comparáveis de forma rápida e segura.</p></div></div>
             </div>
             <section class="stepper" id="como-funciona" aria-label="Etapas da pesquisa">
-              <div class="process-step active" id="process1"><b>1</b><span><strong>Leitura da planilha</strong><small>Extraímos os itens do arquivo.</small></span></div><i aria-hidden="true">›</i>
-              <div class="process-step" id="process2"><b>2</b><span><strong>Busca do CATMAT</strong><small>Classificamos cada material.</small></span></div><i aria-hidden="true">›</i>
-              <div class="process-step" id="process3"><b>3</b><span><strong>Consulta ao PNCP</strong><small>Comparamos compras públicas.</small></span></div><i aria-hidden="true">›</i>
-              <div class="process-step" id="process4"><b>4</b><span><strong>Resultados</strong><small>Você valida e exporta.</small></span></div>
+              <div class="process-step active" id="process1"><b>1</b><span><strong>Importar planilha</strong><small>Envie os itens do seu arquivo.</small></span></div><i aria-hidden="true">›</i>
+              <div class="process-step" id="process2"><b>2</b><span><strong>Revisar itens e CATMAT</strong><small>Classificamos cada material.</small></span></div><i aria-hidden="true">›</i>
+              <div class="process-step" id="process3"><b>3</b><span><strong>Consultar PNCP</strong><small>Buscamos preços públicos.</small></span></div><i aria-hidden="true">›</i>
+              <div class="process-step" id="process4"><b>4</b><span><strong>Validar e exportar</strong><small>Confira os resultados e baixe sua planilha.</small></span></div>
             </section>
             <section class="research-grid research-grid-simple">
               <article class="card upload-card">
-                <div class="card-title"><b>1.</b><h2>Envie sua planilha</h2></div>
+                <div class="card-title card-title-split"><span><b>1.</b><h2>Importar planilha</h2></span><button id="downloadTemplateButton" class="inline-link" type="button">⇩ Baixar modelo de planilha</button></div>
                 <label class="dropzone" id="dropzone" for="fileInput"><input id="fileInput" type="file" accept=".csv,.xlsx,.xls" /><span class="file-icon" aria-hidden="true">X</span><strong>Arraste e solte sua planilha aqui</strong><small>ou clique para selecionar um arquivo</small><span class="select-file">Selecionar arquivo</span><em>CSV, XLSX ou XLS · descrição, unidade e quantidade</em></label>
                 <p id="itemSummary" class="upload-summary">Nenhum item importado.</p>
               </article>
               <article class="launch-card">
-                <div class="card-title"><b>2.</b><h2>Pesquisar no PNCP</h2></div>
-                <p class="launch-settings-link">A pesquisa usará os critérios definidos em <a href="#configuracao" data-page-target="configuracao">Configurações</a>.</p>
-                <button id="searchButton" class="launch-button" type="button"><span>▶</span>Iniciar pesquisa <i>›</i></button>
-                <p><span>⚡</span> <strong id="timeEstimate">Aprox. 1 a 2 minutos</strong></p>
-                <small>O tempo varia conforme a quantidade de itens e a resposta dos portais públicos.</small>
+                <div class="card-title card-title-split"><span><b>2.</b><h2>Consultar no PNCP</h2></span><a class="inline-link" href="#configuracao" data-page-target="configuracao">⚙ Configurações da pesquisa</a></div>
+                <div class="pncp-panel" aria-live="polite">
+                  <div class="pncp-action"><span class="search-orbit" aria-hidden="true"></span><h3 id="pncpTitle">Pronto para pesquisar</h3><p id="pncpSubtitle">Busque preços públicos comparáveis para todos os itens importados.</p><button id="searchButton" class="launch-button" type="button"><span>▶</span>Iniciar pesquisa <i>›</i></button></div>
+                  <div class="pncp-estimate"><span>⚡ Tempo estimado</span><strong id="timeEstimate">Aprox. 1 a 2 minutos</strong><small>O tempo varia conforme a quantidade de itens e a resposta dos portais públicos.</small></div>
+                </div>
               </article>
             </section>
             <section class="items-panel card hidden" id="itemsWrap">
-              <div class="section-title"><div><span class="section-icon">▤</span><div><h2>Itens importados</h2><p>Confira a leitura antes de iniciar a pesquisa.</p></div></div></div>
-              <div class="table-scroll"><table class="items-table"><thead><tr><th>#</th><th>Descrição</th><th>Unidade</th><th>Qtd.</th><th>CATMAT identificado</th></tr></thead><tbody id="itemsBody"></tbody></table></div>
+              <div class="section-title"><div><span class="section-icon">▤</span><div><h2>Itens importados</h2><p>Confira a leitura antes de iniciar a pesquisa.</p></div></div><label class="item-filter"><span aria-hidden="true">⌕</span><input id="itemFilter" type="search" placeholder="Buscar item, código ou descrição..." aria-label="Buscar nos itens importados" /></label></div>
+              <div class="table-scroll"><table class="items-table"><thead><tr><th>#</th><th>Descrição do item</th><th>Unidade</th><th>Quantidade</th><th>Código CATMAT</th><th>Nome do material</th></tr></thead><tbody id="itemsBody"></tbody></table></div>
             </section>
             <div id="progressWrap" class="progress-wrap hidden" aria-hidden="true"><div id="progressBar"></div></div>
             <p id="status" class="status" aria-live="polite"></p>
