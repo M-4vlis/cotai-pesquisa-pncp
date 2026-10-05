@@ -4,6 +4,25 @@ let state = { items: [], results: [], settings: {} };
 
 const $ = (id) => document.getElementById(id);
 const fields = ['resultCount', 'minScore', 'periodPreset', 'startDate', 'endDate'];
+const pageTitles = {
+  'nova-pesquisa': 'Nova pesquisa',
+  resultados: 'Resultados',
+  'usar-modelo': 'Usar modelo',
+  'buscar-catmat': 'Buscar CATMAT',
+  configuracao: 'Configurações',
+};
+
+function showPage(requestedPage, { updateHash = true } = {}) {
+  const alias = requestedPage === 'como-funciona' ? 'nova-pesquisa' : requestedPage;
+  const pageId = pageTitles[alias] ? alias : 'nova-pesquisa';
+  document.querySelectorAll('[data-app-page]').forEach((page) => page.classList.toggle('active', page.id === pageId));
+  document.querySelectorAll('.side-nav [data-page]').forEach((link) => link.classList.toggle('active', link.dataset.page === pageId));
+  document.body.dataset.page = pageId;
+  document.title = `${pageTitles[pageId]} · CotAí`;
+  if (updateHash && window.location.hash !== `#${pageId}`) history.pushState(null, '', `#${pageId}`);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (requestedPage === 'como-funciona') setTimeout(() => $('como-funciona').scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+}
 
 function db() {
   return new Promise((resolve, reject) => {
@@ -337,7 +356,7 @@ async function search() {
     const pricesFound = state.results.reduce((sum, group) => sum + group.found.length, 0);
     const catalogsFound = state.results.filter((group) => group.catmat).length;
     status(`Pesquisa concluída: ${catalogsFound} CATMAT e ${pricesFound} preços comparáveis. Confirme os registros na fonte oficial.`);
-    $('resultsSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    showPage('resultados');
   } catch (error) {
     status(error.message || 'Não foi possível concluir a pesquisa agora.', true);
   } finally {
@@ -468,6 +487,8 @@ function renderResults() {
   const section = $('resultsSection');
   const body = $('resultsTableBody');
   section.classList.toggle('hidden', !state.results.length);
+  $('resultsEmpty').classList.toggle('hidden', Boolean(state.results.length));
+  $('exportButton').disabled = !state.results.some((group) => group.found?.length);
   const priceCount = state.results.reduce((sum, group) => sum + (group.found?.length || 0), 0);
   const catalogCount = state.results.filter((group) => group.catmat).length;
   const successCount = state.results.filter((group) => group.found?.length).length;
@@ -502,6 +523,8 @@ function filterRows() {
 function status(text, isError = false) {
   $('status').textContent = text;
   $('status').classList.toggle('error', isError);
+  $('resultsStatus').textContent = text;
+  $('resultsStatus').classList.toggle('error', isError);
 }
 
 function sample() {
@@ -515,7 +538,7 @@ function sample() {
   renderItems();
   renderResults();
   status('Modelo carregado. Revise os itens e inicie a pesquisa.');
-  $('nova-pesquisa').scrollIntoView({ behavior: 'smooth' });
+  showPage('nova-pesquisa');
 }
 
 function csv() {
@@ -554,10 +577,15 @@ fields.forEach((id) => $(id).addEventListener('change', () => { updateControls()
 $('resultCount').addEventListener('input', updateControls);
 $('minScore').addEventListener('input', updateControls);
 $('globalSearch').addEventListener('input', filterRows);
-document.querySelectorAll('.side-nav a').forEach((link) => link.addEventListener('click', () => {
-  document.querySelectorAll('.side-nav a').forEach((item) => item.classList.remove('active'));
-  link.classList.add('active');
+document.querySelectorAll('.side-nav [data-page]').forEach((link) => link.addEventListener('click', (event) => {
+  event.preventDefault();
+  showPage(link.dataset.page);
 }));
+document.querySelectorAll('[data-page-target]').forEach((link) => link.addEventListener('click', (event) => {
+  event.preventDefault();
+  showPage(link.dataset.pageTarget);
+}));
+$('globalSearch').addEventListener('focus', () => showPage('resultados'));
 $('resultsTableBody').addEventListener('click', (event) => {
   const button = event.target.closest('.catmat-option, .catmat-refresh');
   if (button) {
@@ -575,12 +603,14 @@ $('resultsTableBody').addEventListener('submit', (event) => {
   chooseCatmat(Number(form.dataset.group), code, true);
 });
 document.addEventListener('keydown', (event) => {
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); $('globalSearch').focus(); }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); showPage('resultados'); $('globalSearch').focus(); }
 });
+window.addEventListener('hashchange', () => showPage(window.location.hash.slice(1), { updateHash: false }));
 ['dragenter', 'dragover'].forEach((name) => $('dropzone').addEventListener(name, (event) => { event.preventDefault(); $('dropzone').classList.add('dragging'); }));
 ['dragleave', 'drop'].forEach((name) => $('dropzone').addEventListener(name, (event) => { event.preventDefault(); $('dropzone').classList.remove('dragging'); }));
 $('dropzone').addEventListener('drop', (event) => event.dataTransfer.files[0] && importFile(event.dataTransfer.files[0]));
 
 setStage(1);
 updateControls();
+showPage(window.location.hash.slice(1) || 'nova-pesquisa', { updateHash: false });
 load();

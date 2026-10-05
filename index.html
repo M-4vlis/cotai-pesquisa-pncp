@@ -17,25 +17,25 @@
   <body>
     <div class="app-shell">
       <aside class="sidebar" aria-label="Navegação principal">
-        <a class="brand" href="#nova-pesquisa" aria-label="CotAí - início">
+        <a class="brand" href="#nova-pesquisa" data-page-target="nova-pesquisa" aria-label="CotAí - início">
           <span class="brand-mark" aria-hidden="true"></span>
           <span><strong>CotAí</strong><small>Pesquisa inteligente</small></span>
-          <em>v2.4</em>
+          <em>v2.5</em>
         </a>
 
         <nav class="side-nav">
-          <a class="active" href="#nova-pesquisa"><span>⌂</span>Nova pesquisa</a>
-          <a href="#resultados"><span>↻</span>Resultados</a>
-          <button id="sampleButton" type="button"><span>▤</span>Usar modelo</button>
-          <a id="catmatSearchNav" href="#buscar-catmat"><span>⌕</span>Buscar CATMAT</a>
-          <a href="#configuracao"><span>⚙</span>Configurações</a>
+          <a class="active" href="#nova-pesquisa" data-page="nova-pesquisa"><span>⌂</span>Nova pesquisa</a>
+          <a href="#resultados" data-page="resultados"><span>↻</span>Resultados</a>
+          <a href="#usar-modelo" data-page="usar-modelo"><span>▤</span>Usar modelo</a>
+          <a id="catmatSearchNav" href="#buscar-catmat" data-page="buscar-catmat"><span>⌕</span>Buscar CATMAT</a>
+          <a href="#configuracao" data-page="configuracao"><span>⚙</span>Configurações</a>
         </nav>
 
         <div class="side-insight">
           <div class="insight-art" aria-hidden="true"><i></i><b></b><span></span></div>
           <strong>Mais segurança para suas compras públicas</strong>
           <p>Catálogo oficial e dados do PNCP para decisões mais confiáveis.</p>
-          <a href="#como-funciona">Como funciona <span>→</span></a>
+          <a href="#como-funciona" data-page-target="como-funciona">Como funciona <span>→</span></a>
         </div>
       </aside>
 
@@ -53,116 +53,82 @@
         </header>
 
         <main>
-          <section class="page-heading" id="nova-pesquisa">
-            <div>
-              <span class="heading-icon" aria-hidden="true">⌕</span>
-              <div><h1>Nova pesquisa de preços</h1><p>Envie sua planilha, ajuste os critérios e encontre preços públicos comparáveis.</p></div>
+          <section class="app-page active" id="nova-pesquisa" data-app-page>
+            <div class="page-heading">
+              <div><span class="heading-icon" aria-hidden="true">⌕</span><div><h1>Nova pesquisa de preços</h1><p>Envie sua planilha e encontre preços públicos comparáveis.</p></div></div>
+              <a class="help-button" href="#como-funciona"><span>▶</span> Como funciona?</a>
             </div>
-            <a class="help-button" href="#como-funciona"><span>▶</span> Como funciona?</a>
+            <section class="stepper" id="como-funciona" aria-label="Etapas da pesquisa">
+              <div class="process-step active" id="process1"><b>1</b><span><strong>Leitura da planilha</strong><small>Extraímos os itens do arquivo.</small></span></div><i aria-hidden="true">›</i>
+              <div class="process-step" id="process2"><b>2</b><span><strong>Busca do CATMAT</strong><small>Classificamos cada material.</small></span></div><i aria-hidden="true">›</i>
+              <div class="process-step" id="process3"><b>3</b><span><strong>Consulta ao PNCP</strong><small>Comparamos compras públicas.</small></span></div><i aria-hidden="true">›</i>
+              <div class="process-step" id="process4"><b>4</b><span><strong>Resultados</strong><small>Você valida e exporta.</small></span></div>
+            </section>
+            <section class="research-grid research-grid-simple">
+              <article class="card upload-card">
+                <div class="card-title"><b>1.</b><h2>Envie sua planilha</h2></div>
+                <label class="dropzone" id="dropzone" for="fileInput"><input id="fileInput" type="file" accept=".csv,.xlsx,.xls" /><span class="file-icon" aria-hidden="true">X</span><strong>Arraste e solte sua planilha aqui</strong><small>ou clique para selecionar um arquivo</small><span class="select-file">Selecionar arquivo</span><em>CSV, XLSX ou XLS · descrição, unidade e quantidade</em></label>
+                <p id="itemSummary" class="upload-summary">Nenhum item importado.</p>
+              </article>
+              <article class="launch-card">
+                <div class="card-title"><b>2.</b><h2>Pesquisar no PNCP</h2></div>
+                <p class="launch-settings-link">A pesquisa usará os critérios definidos em <a href="#configuracao" data-page-target="configuracao">Configurações</a>.</p>
+                <button id="searchButton" class="launch-button" type="button"><span>▶</span>Iniciar pesquisa <i>›</i></button>
+                <p><span>⚡</span> <strong id="timeEstimate">Aprox. 1 a 2 minutos</strong></p>
+                <small>O tempo varia conforme a quantidade de itens e a resposta dos portais públicos.</small>
+              </article>
+            </section>
+            <section class="items-panel card hidden" id="itemsWrap">
+              <div class="section-title"><div><span class="section-icon">▤</span><div><h2>Itens importados</h2><p>Confira a leitura antes de iniciar a pesquisa.</p></div></div></div>
+              <div class="table-scroll"><table class="items-table"><thead><tr><th>#</th><th>Descrição</th><th>Unidade</th><th>Qtd.</th><th>CATMAT identificado</th></tr></thead><tbody id="itemsBody"></tbody></table></div>
+            </section>
+            <div id="progressWrap" class="progress-wrap hidden" aria-hidden="true"><div id="progressBar"></div></div>
+            <p id="status" class="status" aria-live="polite"></p>
           </section>
 
-          <section class="stepper" id="como-funciona" aria-label="Etapas da pesquisa">
-            <div class="process-step active" id="process1"><b>1</b><span><strong>Leitura da planilha</strong><small>Extraímos os itens do arquivo.</small></span></div>
-            <i aria-hidden="true">›</i>
-            <div class="process-step" id="process2"><b>2</b><span><strong>Busca do CATMAT</strong><small>Classificamos cada material.</small></span></div>
-            <i aria-hidden="true">›</i>
-            <div class="process-step" id="process3"><b>3</b><span><strong>Consulta ao PNCP</strong><small>Comparamos compras públicas.</small></span></div>
-            <i aria-hidden="true">›</i>
-            <div class="process-step" id="process4"><b>4</b><span><strong>Resultados</strong><small>Você valida e exporta.</small></span></div>
-          </section>
-
-          <section class="catmat-search-screen card" id="buscar-catmat">
-            <div class="catmat-search-copy">
-              <span class="catmat-search-icon" aria-hidden="true">⌕</span>
-              <div>
-                <span class="eyebrow">Consulta rápida</span>
-                <h2>Buscar CATMAT</h2>
-                <p>Descreva o material para localizar a melhor correspondência no catálogo oficial.</p>
+          <section class="app-page" id="resultados" data-app-page>
+            <div class="page-heading"><div><span class="heading-icon purple" aria-hidden="true">▤</span><div><h1>Resultados da pesquisa</h1><p>Confira os CATMAT e os preços localizados nas fontes oficiais.</p></div></div><button id="exportButton" class="export-button" type="button">⇩ Exportar resultados</button></div>
+            <p id="resultsStatus" class="status" aria-live="polite"></p>
+            <div id="resultsEmpty" class="page-empty card"><span>▤</span><h2>Nenhum resultado disponível</h2><p>Importe uma planilha e conclua uma pesquisa para visualizar os preços nesta página.</p><a href="#nova-pesquisa" data-page-target="nova-pesquisa">Iniciar nova pesquisa</a></div>
+            <section id="resultsSection" class="results-panel card hidden">
+              <div class="metrics-grid">
+                <article><span class="metric-icon blue">▤</span><div><strong id="metricProcessed">0</strong><b>Itens processados</b><small>Materiais lidos da planilha</small></div></article>
+                <article><span class="metric-icon purple">◇</span><div><strong id="metricCatmat">0</strong><b>CATMAT encontrados</b><small id="metricCatmatDetail">Aguardando pesquisa</small></div></article>
+                <article><span class="metric-icon green">▤</span><div><strong id="metricPrices">0</strong><b>Preços retornados</b><small id="metricPricesDetail">Aguardando pesquisa</small></div></article>
+                <article><span class="metric-icon orange">↗</span><div><strong id="metricSuccess">0%</strong><b>Taxa de sucesso</b><small>Itens com preço comparável</small></div></article>
               </div>
-            </div>
-            <form class="catmat-search-form" id="catmatSearchForm">
-              <label for="catmatSearchInput">Nome ou descrição do material</label>
-              <div>
-                <input id="catmatSearchInput" type="search" minlength="3" maxlength="300" autocomplete="off" placeholder="Ex.: caneta esferográfica azul, ponta média 1,0 mm" />
-                <button id="catmatSearchButton" type="submit"><span>⌕</span> Buscar CATMAT</button>
-              </div>
-              <small>Inclua medidas, material, cor e outras características para melhorar a identificação.</small>
-            </form>
-            <p id="catmatSearchStatus" class="catmat-search-status" aria-live="polite"></p>
-            <div id="catmatSearchResults" class="catmat-search-results hidden"></div>
+              <div class="table-scroll result-table-wrap"><table class="results-table"><thead><tr><th>#</th><th>Item da planilha</th><th>Similaridade</th><th>CATMAT</th><th>Preço e item no PNCP</th><th>Unidade</th><th>Órgão / data</th><th>Fonte</th></tr></thead><tbody id="resultsTableBody"></tbody></table></div>
+            </section>
           </section>
 
-          <section class="research-grid">
-            <article class="card upload-card">
-              <div class="card-title"><b>1.</b><h2>Envie sua planilha</h2></div>
-              <label class="dropzone" id="dropzone" for="fileInput">
-                <input id="fileInput" type="file" accept=".csv,.xlsx,.xls" />
-                <span class="file-icon" aria-hidden="true">X</span>
-                <strong>Arraste e solte sua planilha aqui</strong>
-                <small>ou clique para selecionar um arquivo</small>
-                <span class="select-file">Selecionar arquivo</span>
-                <em>CSV, XLSX ou XLS · descrição, unidade e quantidade</em>
-              </label>
-              <p id="itemSummary" class="upload-summary">Nenhum item importado.</p>
-            </article>
-
-            <article class="card config-card" id="configuracao">
-              <div class="card-title"><b>2.</b><h2>Configure a pesquisa</h2></div>
-              <label class="range-field">Quantidade de preços por item
-                <span class="range-line"><input id="resultCount" type="range" min="1" max="10" step="1" value="5" /><output id="resultCountValue">5</output></span>
-                <small><span>1</span><span>10</span></small>
-              </label>
-              <label class="range-field">Similaridade mínima
-                <span class="range-line"><input id="minScore" type="range" min="50" max="95" step="5" value="70" /><output id="minScoreValue">70%</output></span>
-                <small><span>50%</span><span>95%</span></small>
-              </label>
-              <label class="select-field">Período limite da pesquisa
-                <select id="periodPreset"><option value="3">Últimos 3 meses</option><option value="6">Últimos 6 meses</option><option value="12" selected>Últimos 12 meses</option><option value="custom">Período personalizado</option></select>
-              </label>
-            </article>
-
-            <article class="launch-card">
-              <div class="card-title"><b>3.</b><h2>Iniciar pesquisa</h2></div>
-              <button id="searchButton" class="launch-button" type="button"><span>▶</span>Iniciar pesquisa <i>›</i></button>
-              <p><span>⚡</span> <strong id="timeEstimate">Aprox. 1 a 2 minutos</strong></p>
-              <small>O tempo varia conforme a quantidade de itens e a resposta dos portais públicos.</small>
-              <button id="clearButton" class="clear-button" type="button">Limpar dados locais</button>
-            </article>
-          </section>
-
-          <section id="customPeriod" class="custom-period card hidden">
-            <label>Data inicial<input id="startDate" type="date" /></label>
-            <label>Data final<input id="endDate" type="date" /></label>
-          </section>
-
-          <section class="items-panel card hidden" id="itemsWrap">
-            <div class="section-title"><div><span class="section-icon">▤</span><div><h2>Itens importados</h2><p>Confira a leitura antes de iniciar a pesquisa.</p></div></div></div>
-            <div class="table-scroll">
-              <table class="items-table"><thead><tr><th>#</th><th>Descrição</th><th>Unidade</th><th>Qtd.</th><th>CATMAT identificado</th></tr></thead><tbody id="itemsBody"></tbody></table>
+          <section class="app-page" id="usar-modelo" data-app-page>
+            <div class="page-heading"><div><span class="heading-icon green" aria-hidden="true">▤</span><div><h1>Usar planilha modelo</h1><p>Comece com três materiais de exemplo e conheça o fluxo completo do CotAí.</p></div></div></div>
+            <div class="template-page-grid">
+              <article class="template-intro card"><span class="eyebrow">Exemplo pronto</span><h2>Carregue dados de demonstração</h2><p>O modelo inclui papel A4, caneta esferográfica e lâmpada LED. Você poderá revisar os itens antes de iniciar a consulta.</p><button id="sampleButton" class="primary-action" type="button">▤ Carregar modelo</button></article>
+              <article class="template-preview card"><div class="section-title"><div><span class="section-icon">▤</span><div><h2>Prévia do modelo</h2><p>Estrutura mínima aceita pela ferramenta.</p></div></div></div><div class="table-scroll"><table class="items-table"><thead><tr><th>Descrição</th><th>Unidade</th><th>Qtd.</th></tr></thead><tbody><tr><td>Papel sulfite A4, 75 g/m², branco</td><td>Resma</td><td>20</td></tr><tr><td>Caneta esferográfica azul, ponta média</td><td>Unidade</td><td>100</td></tr><tr><td>Lâmpada LED bulbo 12 W bivolt</td><td>Unidade</td><td>30</td></tr></tbody></table></div></article>
             </div>
           </section>
 
-          <div id="progressWrap" class="progress-wrap hidden" aria-hidden="true"><div id="progressBar"></div></div>
-          <p id="status" class="status" aria-live="polite"></p>
+          <section class="app-page" id="buscar-catmat" data-app-page>
+            <div class="page-heading"><div><span class="heading-icon" aria-hidden="true">⌕</span><div><h1>Buscar CATMAT</h1><p>Localize códigos do catálogo oficial sem iniciar uma pesquisa de preços.</p></div></div></div>
+            <section class="catmat-search-screen card">
+              <div class="catmat-search-copy"><span class="catmat-search-icon" aria-hidden="true">⌕</span><div><span class="eyebrow">Consulta rápida</span><h2>Identifique o material</h2><p>Descreva o material para localizar a melhor correspondência no catálogo oficial.</p></div></div>
+              <form class="catmat-search-form" id="catmatSearchForm"><label for="catmatSearchInput">Nome ou descrição do material</label><div><input id="catmatSearchInput" type="search" minlength="3" maxlength="300" autocomplete="off" placeholder="Ex.: caneta esferográfica azul, ponta média 1,0 mm" /><button id="catmatSearchButton" type="submit"><span>⌕</span> Buscar CATMAT</button></div><small>Inclua medidas, material, cor e outras características para melhorar a identificação.</small></form>
+              <p id="catmatSearchStatus" class="catmat-search-status" aria-live="polite"></p><div id="catmatSearchResults" class="catmat-search-results hidden"></div>
+            </section>
+          </section>
 
-          <section id="resultsSection" class="results-panel card hidden">
-            <div class="section-title" id="resultados">
-              <div><span class="section-icon purple">▤</span><div><h2>Resultados da pesquisa</h2><p>Confira os CATMAT e os preços localizados nas fontes oficiais.</p></div></div>
-              <button id="exportButton" class="export-button" type="button">⇩ Exportar resultados</button>
-            </div>
-
-            <div class="metrics-grid">
-              <article><span class="metric-icon blue">▤</span><div><strong id="metricProcessed">0</strong><b>Itens processados</b><small>Materiais lidos da planilha</small></div></article>
-              <article><span class="metric-icon purple">◇</span><div><strong id="metricCatmat">0</strong><b>CATMAT encontrados</b><small id="metricCatmatDetail">Aguardando pesquisa</small></div></article>
-              <article><span class="metric-icon green">▤</span><div><strong id="metricPrices">0</strong><b>Preços retornados</b><small id="metricPricesDetail">Aguardando pesquisa</small></div></article>
-              <article><span class="metric-icon orange">↗</span><div><strong id="metricSuccess">0%</strong><b>Taxa de sucesso</b><small>Itens com preço comparável</small></div></article>
-            </div>
-
-            <div class="table-scroll result-table-wrap">
-              <table class="results-table">
-                <thead><tr><th>#</th><th>Item da planilha</th><th>Similaridade</th><th>CATMAT</th><th>Preço e item no PNCP</th><th>Unidade</th><th>Órgão / data</th><th>Fonte</th></tr></thead>
-                <tbody id="resultsTableBody"></tbody>
-              </table>
+          <section class="app-page" id="configuracao" data-app-page>
+            <div class="page-heading"><div><span class="heading-icon orange" aria-hidden="true">⚙</span><div><h1>Configurações</h1><p>Defina os critérios usados nas próximas pesquisas de preços.</p></div></div></div>
+            <div class="settings-grid">
+              <article class="card config-card">
+                <div class="card-title"><b>1.</b><h2>Critérios da pesquisa</h2></div>
+                <label class="range-field">Quantidade de preços por item<span class="range-line"><input id="resultCount" type="range" min="1" max="10" step="1" value="5" /><output id="resultCountValue">5</output></span><small><span>1</span><span>10</span></small></label>
+                <label class="range-field">Similaridade mínima<span class="range-line"><input id="minScore" type="range" min="50" max="95" step="5" value="70" /><output id="minScoreValue">70%</output></span><small><span>50%</span><span>95%</span></small></label>
+                <label class="select-field">Período limite da pesquisa<select id="periodPreset"><option value="3">Últimos 3 meses</option><option value="6">Últimos 6 meses</option><option value="12" selected>Últimos 12 meses</option><option value="custom">Período personalizado</option></select></label>
+                <section id="customPeriod" class="custom-period hidden"><label>Data inicial<input id="startDate" type="date" /></label><label>Data final<input id="endDate" type="date" /></label></section>
+              </article>
+              <article class="settings-info card"><span class="settings-icon">✓</span><h2>Configuração automática</h2><p>As alterações são salvas neste navegador e aplicadas na próxima pesquisa.</p><a class="primary-action" href="#nova-pesquisa" data-page-target="nova-pesquisa">Voltar para nova pesquisa</a><button id="clearButton" class="clear-button" type="button">Limpar todos os dados locais</button></article>
             </div>
           </section>
 
