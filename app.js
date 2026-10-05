@@ -584,6 +584,14 @@ function downloadTemplate() {
   XLSX.writeFile(workbook, 'modelo-cotai.xlsx');
 }
 
+function updateThemeToggle() {
+  const isDark = document.documentElement.dataset.theme === 'dark';
+  $('themeToggleIcon').textContent = isDark ? '☀' : '☾';
+  $('themeToggleLabel').textContent = isDark ? 'Modo claro' : 'Modo escuro';
+  $('themeToggle').setAttribute('aria-label', isDark ? 'Mudar para o modo claro' : 'Mudar para o modo escuro');
+  $('themeToggle').setAttribute('title', isDark ? 'Mudar para o modo claro' : 'Mudar para o modo escuro');
+}
+
 $('fileInput').addEventListener('change', (event) => event.target.files[0] && importFile(event.target.files[0]));
 $('sampleButton').onclick = sample;
 $('catmatSearchForm').addEventListener('submit', searchCatmatDirectory);
@@ -592,6 +600,11 @@ $('catmatSearchResults').addEventListener('click', (event) => {
   if (button) copyCatmat(button.dataset.code, button);
 });
 $('searchButton').onclick = search;
+$('themeToggle').onclick = () => {
+  const nextTheme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  window.cotaiTheme.set(nextTheme);
+};
+window.addEventListener('cotai-theme-change', updateThemeToggle);
 $('downloadTemplateButton').onclick = downloadTemplate;
 $('itemFilter').addEventListener('input', filterImportedItems);
 $('exportButton').onclick = csv;
@@ -641,6 +654,7 @@ window.addEventListener('hashchange', () => showPage(window.location.hash.slice(
 $('dropzone').addEventListener('drop', (event) => event.dataTransfer.files[0] && importFile(event.dataTransfer.files[0]));
 
 setStage(1);
+updateThemeToggle();
 updateControls();
 showPage(window.location.hash.slice(1) || 'nova-pesquisa', { updateHash: false });
 load();

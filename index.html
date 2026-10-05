@@ -15,13 +15,24 @@
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
     <script>
       (() => {
-        const preference = window.matchMedia('(prefers-color-scheme: dark)');
-        const applyTheme = () => {
-          document.documentElement.dataset.theme = preference.matches ? 'dark' : 'light';
-          document.documentElement.style.colorScheme = preference.matches ? 'dark' : 'light';
+        const storageKey = 'cotai-theme';
+        const systemPreference = window.matchMedia('(prefers-color-scheme: dark)');
+        const savedTheme = () => {
+          try { return localStorage.getItem(storageKey); } catch { return null; }
         };
-        applyTheme();
-        preference.addEventListener?.('change', applyTheme);
+        const applyTheme = (theme, persist = false) => {
+          const selected = theme === 'dark' ? 'dark' : 'light';
+          document.documentElement.dataset.theme = selected;
+          document.documentElement.style.colorScheme = selected;
+          if (persist) try { localStorage.setItem(storageKey, selected); } catch {}
+          window.dispatchEvent(new CustomEvent('cotai-theme-change', { detail: { theme: selected } }));
+        };
+        const initial = savedTheme();
+        applyTheme(initial === 'light' || initial === 'dark' ? initial : (systemPreference.matches ? 'dark' : 'light'));
+        systemPreference.addEventListener?.('change', (event) => {
+          if (!savedTheme()) applyTheme(event.matches ? 'dark' : 'light');
+        });
+        window.cotaiTheme = { set: (theme) => applyTheme(theme, true), current: () => document.documentElement.dataset.theme };
       })();
     </script>
     <link rel="icon" type="image/x-icon" href="/logo-cotai.ico" media="(prefers-color-scheme: light)" />
@@ -32,7 +43,7 @@
     <div class="app-shell">
       <aside class="sidebar" aria-label="Navegação principal">
         <a class="brand" href="#nova-pesquisa" data-page-target="nova-pesquisa" aria-label="CotAí - início">
-          <span class="brand-logo-frame"><picture><source media="(prefers-color-scheme: dark)" srcset="/logo-cotai-dark.ico" /><img src="/logo-cotai.ico" alt="CotAí — Pesquisa inteligente" /></picture></span>
+          <span class="brand-logo-frame"><img class="brand-logo-light" src="/logo-cotai.ico" alt="CotAí — Pesquisa inteligente" /><img class="brand-logo-dark" src="/logo-cotai-dark.ico" alt="" aria-hidden="true" /></span>
         </a>
 
         <nav class="side-nav">
@@ -52,9 +63,12 @@
             <input id="globalSearch" type="search" placeholder="Filtrar resultados, buscar itens, códigos CATMAT..." aria-label="Filtrar resultados" />
             <kbd>Ctrl K</kbd>
           </label>
-          <div class="local-profile">
-            <span class="privacy-dot"></span>
-            <div><strong>Dados locais</strong><small>Sem cadastro obrigatório</small></div>
+          <div class="topbar-actions">
+            <button id="themeToggle" class="theme-toggle" type="button" aria-label="Mudar para o modo claro"><span id="themeToggleIcon" aria-hidden="true">☀</span><span id="themeToggleLabel">Modo claro</span></button>
+            <div class="local-profile">
+              <span class="privacy-dot"></span>
+              <div><strong>Dados locais</strong><small>Sem cadastro obrigatório</small></div>
+            </div>
           </div>
         </header>
 
