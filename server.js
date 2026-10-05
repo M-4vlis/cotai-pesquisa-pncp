@@ -1,5 +1,6 @@
 const html = "__COTAI_HTML__";
 const ogImageBase64 = "__COTAI_OG_BASE64__";
+const logoImageBase64 = "__COTAI_LOGO_BASE64__";
 const memoryCache = new Map();
 const inflightRequests = new Map();
 const upstreamWaiters = [];
@@ -1065,6 +1066,11 @@ export default {
       const binary = atob(ogImageBase64);
       const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
       return new Response(bytes, { headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400' } });
+    }
+    if (url.pathname === '/logo-cotai.png') {
+      const binary = atob(logoImageBase64);
+      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      return new Response(bytes, { headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=604800' } });
     }
     if (url.pathname === '/api/catmat') {
       const query = (url.searchParams.get('q') || '').trim();
