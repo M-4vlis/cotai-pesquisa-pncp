@@ -25,7 +25,7 @@ O produto deve exigir o mínimo possível de recursos de servidor. Planilhas, pe
 - Quando a classificação automática falha ou o código correto não aparece nas sugestões, a pessoa usuária pode informar qualquer CATMAT manualmente. O código é validado no catálogo oficial antes da consulta ao PNCP.
 - O menu oferece uma busca rápida de CATMAT por nome ou descrição do material, com melhor correspondência, alternativas e cópia do código.
 - A navegação é dividida em páginas independentes para nova pesquisa, resultados, modelo, busca de CATMAT e configurações, sem empilhar as ferramentas em uma única tela.
-- A identidade visual utiliza o logotipo oficial do CotAí no menu principal, com enquadramento adaptado para telas amplas e compactas.
+- A identidade visual utiliza o logotipo oficial do CotAí em formato ICO multirresolução no menu principal e no ícone do navegador, com enquadramento adaptado para telas amplas e compactas.
 - As consultas externas usam fila com concorrência limitada, cache compartilhado, reaproveitamento de requisições idênticas, espera exponencial com variação aleatória, respeito ao `Retry-After`, paginação reduzida de contingência e confirmação incremental dos links do PNCP.
 - A interface acompanha as quatro etapas da pesquisa, mostra indicadores consolidados e organiza os resultados em uma tabela responsiva.
 
